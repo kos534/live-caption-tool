@@ -1,0 +1,6 @@
+# Live Caption - capture call audio and show real-time captions
+numpy>=1.20.0
+sounddevice>=0.4.6
+vosk>=0.3.45
+# Windows: required to capture speaker/output audio (e.g. USB PnP Sound Device, call audio)
+PyAudioWPatch>=0.2.12.6; sys_platform == "win32"

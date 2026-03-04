@@ -31,6 +31,7 @@ def main() -> None:
     stop_event = threading.Event()
     overlay: CaptionOverlay | None = None
     overlay_root: tk.Tk | None = None
+    is_captioning = False
 
     def start_captioning(device_index: int | None, is_loopback: bool) -> None:
         nonlocal overlay, overlay_root, stop_event
@@ -92,21 +93,21 @@ def main() -> None:
 
     root = tk.Tk()
     root.title("Live Caption")
-    root.geometry("420x400")
-    root.resizable(True, False)
-    root.minsize(380, 380)
+    root.geometry("520x480")
+    root.resizable(True, True)
+    root.minsize(440, 420)
 
-    # Style: emphasize Start button where supported
-    start_btn_style: str | None = None
+    # Styles: primary button and section spacing
+    toggle_btn_style: str | None = None
     try:
         style = ttk.Style()
-        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=(16, 8))
-        start_btn_style = "Primary.TButton"
+        style.configure("Primary.TButton", font=("Segoe UI", 11, "bold"), padding=(24, 12))
+        toggle_btn_style = "Primary.TButton"
     except tk.TclError:
         pass
     root.option_add("*Font", ("Segoe UI", 10))
 
-    main = ttk.Frame(root, padding=16)
+    main = ttk.Frame(root, padding=(20, 20))
     main.pack(fill=tk.BOTH, expand=True)
 
     # Need these for on_start/on_stop; create vars early for status_var
@@ -116,71 +117,76 @@ def main() -> None:
     caption_height_var = tk.StringVar(value=str(settings["caption_height"]))
     font_size_var = tk.StringVar(value=str(settings["font_size"]))
 
-    def on_start() -> None:
-        name = device_var.get()
-        dev = next((d for d in devices if d.name == name), devices[0] if devices else None)
-        if not dev:
-            return
-        try:
-            w = max(200, min(1200, int(caption_width_var.get())))
-            h = max(80, min(600, int(caption_height_var.get())))
-            fs = max(8, min(72, int(font_size_var.get())))
-            save_settings({"caption_width": w, "caption_height": h, "font_size": fs})
-            start_captioning(dev.index, dev.is_loopback)
-            status_var.set("Capturing. Drag caption window to move; drag ⋰ to resize.")
-        except FileNotFoundError as e:
-            messagebox.showerror("Live Caption", str(e))
-        except Exception as e:
-            messagebox.showerror("Live Caption", str(e))
+    def on_toggle() -> None:
+        nonlocal is_captioning
+        if is_captioning:
+            stop_captioning()
+            is_captioning = False
+            toggle_btn.configure(text="Start")
+            status_var.set("Stopped.")
+        else:
+            name = device_var.get()
+            dev = next((d for d in devices if d.name == name), devices[0] if devices else None)
+            if not dev:
+                return
+            try:
+                w = max(200, min(1200, int(caption_width_var.get())))
+                h = max(80, min(600, int(caption_height_var.get())))
+                fs = max(8, min(72, int(font_size_var.get())))
+                save_settings({"caption_width": w, "caption_height": h, "font_size": fs})
+                start_captioning(dev.index, dev.is_loopback)
+                is_captioning = True
+                toggle_btn.configure(text="Stop")
+                status_var.set("Capturing. Drag caption window to move.")
+            except FileNotFoundError as e:
+                messagebox.showerror("Live Caption", str(e))
+            except Exception as e:
+                messagebox.showerror("Live Caption", str(e))
 
-    def on_stop_click() -> None:
-        stop_captioning()
-        status_var.set("Stopped.")
-
-    # ---- Section: Control (primary action) ----
-    ctrl_frame = ttk.LabelFrame(main, text=" Control ", padding=(12, 10))
-    ctrl_frame.pack(fill=tk.X, pady=(0, 12))
-    ctrl_inner = ttk.Frame(ctrl_frame)
-    ctrl_inner.pack(fill=tk.X)
-    start_btn = ttk.Button(ctrl_inner, text="Start", command=on_start)
-    if start_btn_style:
-        start_btn.configure(style=start_btn_style)
-    start_btn.pack(side=tk.LEFT, padx=(0, 8))
-    ttk.Button(ctrl_inner, text="Stop", command=on_stop_click).pack(side=tk.LEFT)
-    ttk.Label(ctrl_frame, text="Start shows the caption window; stop closes it.", foreground="gray").pack(anchor=tk.W, pady=(6, 0))
-
-    # ---- Section: Audio source ----
-    audio_frame = ttk.LabelFrame(main, text=" Audio source ", padding=(12, 10))
-    audio_frame.pack(fill=tk.X, pady=(0, 12))
-    ttk.Label(audio_frame, text="Where to capture speech from (e.g. microphone or speaker output for calls):").pack(anchor=tk.W)
-    combo = ttk.Combobox(audio_frame, textvariable=device_var, width=52, state="readonly")
+    # ---- Section 1: Audio source (choose first, then start) ----
+    audio_frame = ttk.LabelFrame(main, text="  Audio source  ", padding=(14, 12))
+    audio_frame.pack(fill=tk.X, pady=(0, 16))
+    ttk.Label(audio_frame, text="Capture from").pack(anchor=tk.W)
+    combo = ttk.Combobox(audio_frame, textvariable=device_var, height=8, state="readonly")
     combo["values"] = [d.name for d in devices]
     combo.pack(fill=tk.X, pady=(6, 0))
 
-    # ---- Section: Caption window settings ----
-    opts_frame = ttk.LabelFrame(main, text=" Caption window ", padding=(12, 10))
-    opts_frame.pack(fill=tk.X, pady=(0, 12))
+    # ---- Section 2: Primary action ----
+    ctrl_frame = ttk.Frame(main)
+    ctrl_frame.pack(fill=tk.X, pady=(0, 20))
+    toggle_btn = ttk.Button(ctrl_frame, text="Start", command=on_toggle)
+    if toggle_btn_style:
+        toggle_btn.configure(style=toggle_btn_style)
+    toggle_btn.pack(fill=tk.X, pady=(0, 6))
+    ttk.Label(ctrl_frame, text="Start captioning; click again to stop.", foreground="gray", font=("Segoe UI", 9)).pack(anchor=tk.W)
+
+    # ---- Section 3: Caption window (optional tweaks) ----
+    opts_frame = ttk.LabelFrame(main, text="  Caption window  ", padding=(14, 12))
+    opts_frame.pack(fill=tk.X, pady=(0, 16))
     grid = ttk.Frame(opts_frame)
     grid.pack(fill=tk.X)
-    ttk.Label(grid, text="Width:").grid(row=0, column=0, sticky=tk.W, padx=(0, 6), pady=2)
-    ttk.Spinbox(grid, from_=200, to=1200, width=8, textvariable=caption_width_var).grid(row=0, column=1, sticky=tk.W, padx=(0, 16), pady=2)
-    ttk.Label(grid, text="Height:").grid(row=0, column=2, sticky=tk.W, padx=(0, 6), pady=2)
-    ttk.Spinbox(grid, from_=80, to=600, width=8, textvariable=caption_height_var).grid(row=0, column=3, sticky=tk.W, padx=(0, 16), pady=2)
-    ttk.Label(grid, text="Font size:").grid(row=0, column=4, sticky=tk.W, padx=(0, 6), pady=2)
-    ttk.Spinbox(grid, from_=8, to=72, width=6, textvariable=font_size_var).grid(row=0, column=5, sticky=tk.W, padx=(0, 0), pady=2)
-    ttk.Button(grid, text="Save defaults", command=apply_settings).grid(row=1, column=0, columnspan=2, sticky=tk.W, padx=(0, 0), pady=(8, 0))
-    ttk.Label(opts_frame, text="Used when you next click Start. Resize the caption window with the ⋰ handle.", foreground="gray").pack(anchor=tk.W, pady=(8, 0))
+    label_opts = {"sticky": tk.W, "padx": (0, 8), "pady": 4}
+    field_opts = {"sticky": tk.W, "pady": 4}
+    ttk.Label(grid, text="Width", width=10, anchor=tk.W).grid(row=0, column=0, **label_opts)
+    ttk.Spinbox(grid, from_=200, to=1200, width=8, textvariable=caption_width_var).grid(row=0, column=1, padx=(0, 20), **field_opts)
+    ttk.Label(grid, text="Height", width=10, anchor=tk.W).grid(row=0, column=2, **label_opts)
+    ttk.Spinbox(grid, from_=80, to=600, width=8, textvariable=caption_height_var).grid(row=0, column=3, padx=(0, 20), **field_opts)
+    ttk.Label(grid, text="Font size", width=10, anchor=tk.W).grid(row=0, column=4, **label_opts)
+    ttk.Spinbox(grid, from_=8, to=72, width=6, textvariable=font_size_var).grid(row=0, column=5, **field_opts)
+    ttk.Button(grid, text="Save defaults", command=apply_settings).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(12, 0))
 
-    # ---- Status bar ----
+    # ---- Status bar (fixed at bottom) ----
+    ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(8, 10))
     status_frame = ttk.Frame(main)
-    status_frame.pack(fill=tk.X, pady=(4, 0))
-    status_lbl = ttk.Label(status_frame, textvariable=status_var, foreground="gray")
+    status_frame.pack(fill=tk.X)
+    status_lbl = ttk.Label(status_frame, textvariable=status_var, foreground="gray", font=("Segoe UI", 9))
     status_lbl.pack(anchor=tk.W)
 
     # ---- Model warning ----
     if not model_dir:
-        warn = ttk.Label(main, text="Vosk model not found. Add a model to the 'models' folder.", foreground="orange", wraplength=380)
-        warn.pack(anchor=tk.W, pady=(8, 0))
+        ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(12, 8))
+        warn = ttk.Label(main, text="Vosk model not found. Add a model to the 'models' folder.", foreground="orange", font=("Segoe UI", 9), wraplength=460)
+        warn.pack(anchor=tk.W)
 
     root.protocol("WM_DELETE_WINDOW", lambda: (stop_captioning(), root.destroy()))
     root.mainloop()

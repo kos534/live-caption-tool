@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes
+import os
 import sys
+import tempfile
 import threading
 from typing import Callable
 
@@ -42,6 +44,49 @@ shell32 = ctypes.windll.shell32
 kernel32 = ctypes.windll.kernel32
 
 NOTIFYICONDATAW_SIZE = 504  # Win7+ expected size for Shell_NotifyIconW
+LR_LOADFROMFILE = 0x0010
+IMAGE_ICON = 1
+
+
+def _create_tray_icon_file() -> str | None:
+    """Create a small 32x32 .ico file (caption bubble style). Returns path or None."""
+    try:
+        from PIL import Image, ImageDraw
+        size = 32
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        margin = 3
+        d.rounded_rectangle(
+            [margin, margin, size - margin - 1, size - margin - 1],
+            radius=6,
+            fill=(70, 130, 180),
+            outline=(255, 255, 255),
+            width=2,
+        )
+        d.text((size // 2 - 6, size // 2 - 8), "CC", fill=(255, 255, 255))
+        fd, path = tempfile.mkstemp(suffix=".ico")
+        os.close(fd)
+        img.save(path, format="ICO", sizes=[(size, size)])
+        return path
+    except Exception:
+        return None
+
+
+def _load_icon_from_file(path: str):
+    """Load HICON from .ico file. Caller must delete file. Returns HICON or 0."""
+    try:
+        hicon = user32.LoadImageW(
+            None,
+            path,
+            IMAGE_ICON,
+            0,
+            0,
+            LR_LOADFROMFILE,
+        )
+        return hicon or 0
+    except Exception:
+        return 0
+
 
 class NOTIFYICONDATAW(ctypes.Structure):
     _fields_ = [
@@ -228,15 +273,24 @@ def run_tray(
     _tray_hwnds[icon_id] = hwnd
     _tray_callbacks[hwnd_key] = (on_activate, on_quit)
 
-    # Use default icon: NIF_ICON optional; omit icon for simplicity (tray shows default)
-    hicon = None
+    # Load custom icon (PIL creates .ico, LoadImageW loads it)
+    hicon = 0
+    icon_path = _create_tray_icon_file()
+    if icon_path:
+        try:
+            hicon = _load_icon_from_file(icon_path)
+        finally:
+            try:
+                os.unlink(icon_path)
+            except Exception:
+                pass
     nid = NOTIFYICONDATAW()
     nid.cbSize = NOTIFYICONDATAW_SIZE
     nid.hWnd = hwnd
     nid.uID = icon_id
-    nid.uFlags = NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP
+    nid.uFlags = (NIF_ICON if hicon else 0) | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP
     nid.uCallbackMessage = WM_TRAYICON
-    nid.hIcon = 0
+    nid.hIcon = hicon
     nid.szTip = tooltip[:127]
     if not shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
         _tray_callbacks.pop(hwnd_key, None)

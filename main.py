@@ -530,24 +530,29 @@ def main() -> None:
             ctrl_hk_var.get(), alt_hk_var.get(), shift_hk_var.get(), win_hk_var.get(),
             capture_key_var.get().strip().lower() or "q",
         )
-        callback = lambda: root.after(0, start_area_selector)
+        trigger_q: queue.Queue[int] = queue.Queue()
+        hotkey_queue[0] = trigger_q
+        # All backends put into queue so capture works when window is in tray (main thread polls)
+        def hotkey_trigger() -> None:
+            try:
+                trigger_q.put_nowait(1)
+            except Exception:
+                pass
         try:
             tk_seq = hotkey_to_tk_bind_sequence(hk)
-            root.bind(tk_seq, lambda e: callback())
-            root.bind_all(tk_seq, lambda e: callback())
+            root.bind(tk_seq, lambda e: hotkey_trigger())
+            root.bind_all(tk_seq, lambda e: hotkey_trigger())
             hotkey_tk_seq[0] = tk_seq
         except tk.TclError:
             pass
-        trigger_q: queue.Queue[int] = queue.Queue()
-        hotkey_queue[0] = trigger_q
-        ok, method, stop_fn = start_hotkey_listener(hk, callback, trigger_queue=trigger_q)
+        ok, method, stop_fn = start_hotkey_listener(hk, hotkey_trigger, trigger_queue=trigger_q)
         hotkey_stop[0] = stop_fn
         if ok:
+            root.after(50, poll_hotkey_queue)
             if method == "win_hook":
-                root.after(50, poll_hotkey_queue)
-                status_var.set(f"Capture hotkey: {hk} (works in all apps).")
+                status_var.set(f"Capture hotkey: {hk} (works in all apps and from tray).")
             else:
-                status_var.set(f"Capture hotkey: {hk} (window + {method}).")
+                status_var.set(f"Capture hotkey: {hk} (works from tray; {method}).")
         else:
             status_var.set(f"Capture hotkey: {hk} (window only). Run as administrator for other apps.")
 

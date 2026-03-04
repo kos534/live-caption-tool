@@ -1,0 +1,173 @@
+﻿python : 89 INFO: PyInstaller: 6.18.0, contrib hooks: 2026.0
+At C:\Users\aaa\AppData\Local\Temp\ps-script-96ff84f0-42e6-408c-b46a-7c76c95ed155.ps1:80 char:116
++ ... lyContinue; python -m PyInstaller --noconfirm live-caption.spec 2>&1  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (89 INFO: PyInst...b hooks: 2026.0:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+89 INFO: Python: 3.11.9
+93 INFO: Platform: Windows-10-10.0.19045-SP0
+93 INFO: Python environment: C:\Users\aaa\AppData\Local\Programs\Python\Python311
+155 INFO: Module search paths (PYTHONPATH):
+['D:\\Workspace\\Projects\\live-caption-tool',
+ 'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\python311.zip',
+ 'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\DLLs',
+ 'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib',
+ 'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311',
+ 'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages',
+ 'D:\\Workspace\\Projects\\live-caption-tool']
+371 INFO: Appending 'datas' from .spec
+3234 INFO: checking Analysis
+3234 INFO: Building Analysis because Analysis-00.toc is non existent
+3234 INFO: Looking for Python shared library...
+3234 INFO: Using Python shared library: C:\Users\aaa\AppData\Local\Programs\Python\Python311\python311.dll
+3234 INFO: Running Analysis Analysis-00.toc
+3235 INFO: Target bytecode optimization level: 0
+3235 INFO: Initializing module dependency graph...
+3239 INFO: Initializing module graph hook caches...
+3250 INFO: Analyzing modules for base_library.zip ...
+3780 INFO: Processing standard module hook 'hook-heapq.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+3828 INFO: Processing standard module hook 'hook-encodings.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+4799 INFO: Processing standard module hook 'hook-pickle.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+5784 INFO: Caching module dependency graph...
+5810 INFO: Analyzing D:\Workspace\Projects\live-caption-tool\main.py
+5832 INFO: Processing pre-find-module-path hook 'hook-tkinter.py' from 'C:\\Users\\aaa\\AppData\\Local\\Programs\\Pytho
+n\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+5833 INFO: TclTkInfo: initializing cached Tcl/Tk info...
+6007 INFO: Processing standard module hook 'hook-_tkinter.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+6087 INFO: Processing standard module hook 'hook-sounddevice.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+6104 INFO: Processing standard module hook 'hook-platform.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+6118 INFO: Processing standard module hook 'hook-_ctypes.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+6164 INFO: Processing standard module hook 'hook-numpy.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+6474 INFO: Processing standard module hook 'hook-sysconfig.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+6506 INFO: Processing standard module hook 'hook-difflib.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+7168 INFO: Processing standard module hook 'hook-psutil.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+8068 INFO: Processing standard module hook 'hook-PIL.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+8126 INFO: Processing standard module hook 'hook-PIL.Image.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+8285 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\aaa\\AppData\\Local\\Pro
+grams\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8286 INFO: SetuptoolsInfo: initializing cached setuptools info...
+8994 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+9038 INFO: Processing standard module hook 'hook-xml.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+9421 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+9440 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+9658 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from 'C:\\Users\\aaa\\AppData\\Local\\Programs\\P
+ython\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+9669 INFO: Processing standard module hook 'hook-pynput.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+9842 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'C:\\Users\\aaa\\AppData\\Local\\Programs\\P
+ython\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+9955 INFO: Processing standard module hook 'hook-urllib3.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+10021 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'C:\\Users\\aaa\\AppData\\Local\\Programs\\
+Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+10306 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+10381 INFO: Processing standard module hook 'hook-certifi.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+10504 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from 'C:\\Users\\aaa\\AppData\\Local\\
+Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+10532 INFO: Processing module hooks (post-graph stage)...
+10783 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+10831 INFO: Processing standard module hook 'hook-_tkinter.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks'
+11217 INFO: Performing binary vs. data reclassification (61206 entries)
+15092 INFO: Looking for ctypes DLLs
+15177 INFO: Analyzing run-time hooks ...
+15177 INFO: Including custom run-time hook 'pyi_rth_sounddevice.py'
+15180 INFO: Including run-time hook 'pyi_rth_inspect.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+15182 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+15183 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+15184 INFO: Including run-time hook 'pyi_rth__tkinter.py' from 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+16303 INFO: Creating base_library.zip...
+16316 INFO: Looking for dynamic libraries
+C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\building\build_main.py:227: 
+UserWarning: The numpy.array_api submodule is still experimental. See NEP 47.
+  __import__(package)
+16887 INFO: Extra DLL search directories (AddDllDirectory): 
+['C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\numpy.libs', 
+'C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\vosk']
+16887 INFO: Extra DLL search directories (PATH): 
+['C:\\Users\\aaa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\vosk']
+19927 WARNING: Library not found: could not resolve 'nvonnxparser_10.dll', dependency of 'C:\\Users\\aaa\\AppData\\Loca
+l\\Programs\\Python\\Python311\\Lib\\site-packages\\onnxruntime\\capi\\onnxruntime_providers_tensorrt.dll'.
+19927 WARNING: Library not found: could not resolve 'nvinfer_plugin_10.dll', dependency of 'C:\\Users\\aaa\\AppData\\Lo
+cal\\Programs\\Python\\Python311\\Lib\\site-packages\\onnxruntime\\capi\\onnxruntime_providers_tensorrt.dll'.
+19927 WARNING: Library not found: could not resolve 'nvinfer_10.dll', dependency of 'C:\\Users\\aaa\\AppData\\Local\\Pr
+ograms\\Python\\Python311\\Lib\\site-packages\\onnxruntime\\capi\\onnxruntime_providers_tensorrt.dll'.
+21503 INFO: Warnings written to D:\Workspace\Projects\live-caption-tool\build\live-caption\warn-live-caption.txt
+21549 INFO: Graph cross-reference written to 
+D:\Workspace\Projects\live-caption-tool\build\live-caption\xref-live-caption.html
+23278 INFO: checking PYZ
+23278 INFO: Building PYZ because PYZ-00.toc is non existent
+23278 INFO: Building PYZ (ZlibArchive) D:\Workspace\Projects\live-caption-tool\build\live-caption\PYZ-00.pyz
+23716 INFO: Building PYZ (ZlibArchive) D:\Workspace\Projects\live-caption-tool\build\live-caption\PYZ-00.pyz completed 
+successfully.
+24510 INFO: checking PKG
+24511 INFO: Building PKG because PKG-00.toc is non existent
+24511 INFO: Building PKG (CArchive) LiveCaption.pkg
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\__main__.py", line 321, in 
+<module>
+    run()
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\__main__.py", line 215, in 
+run
+    run_build(pyi_config, spec_file, **vars(args))
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\__main__.py", line 70, in 
+run_build
+    PyInstaller.building.build_main.main(pyi_config, spec_file, **kwargs)
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\building\build_main.py", 
+line 1275, in main
+    build(specfile, distpath, workpath, clean_build)
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\building\build_main.py", 
+line 1213, in build
+    exec(code, spec_namespace)
+  File "live-caption.spec", line 66, in <module>
+    # One-folder build: exe + dependencies in dist/LiveCaption/ (faster, more reliable than one-file)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\building\api.py", line 656, 
+in __init__
+    self.pkg = PKG(
+               ^^^^
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\building\api.py", line 252, 
+in __init__
+    self.__postinit__()
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\building\datastruct.py", 
+line 184, in __postinit__
+    self.assemble()
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\building\api.py", line 358, 
+in assemble
+    CArchiveWriter(self.name, bootstrap_toc + archive_toc, pylib_name=self.python_lib_name)
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\archive\writers.py", line 
+157, in __init__
+    toc_data = self._serialize_toc(toc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\aaa\AppData\Local\Programs\Python\Python311\Lib\site-packages\PyInstaller\archive\writers.py", line 
+311, in _serialize_toc
+    serialized_entry = struct.pack(
+                       ^^^^^^^^^^^^
+struct.error: argument out of range

@@ -22,6 +22,14 @@ from caption_engine import find_model_dir, run_caption_engine
 from config import load_settings, save_settings
 from overlay import CaptionOverlay
 
+# Unconditional imports so PyInstaller bundles them (used in audio_capture)
+import sounddevice  # noqa: F401
+if sys.platform == "win32":
+    try:
+        import pyaudiowpatch  # noqa: F401
+    except ImportError:
+        pass
+
 
 def _get_screen_cursor_pos(root: tk.Tk) -> tuple[int, int]:
     """Return current mouse position in screen coordinates (reliable across monitors/DPI)."""
@@ -430,7 +438,60 @@ def main() -> None:
         warn = ttk.Label(main, text="Vosk model not found. Add a model to the 'models' folder.", foreground="orange", font=("Segoe UI", 9), wraplength=540)
         warn.pack(anchor=tk.W)
 
-    root.protocol("WM_DELETE_WINDOW", lambda: (stop_captioning(), root.destroy()))
+    # ---- System tray: close (X) hides to tray; restore via tray icon ----
+    tray_cmd_queue: queue.Queue[str] = queue.Queue()
+
+    def show_window() -> None:
+        try:
+            root.deiconify()
+            root.lift()
+            root.focus_force()
+        except tk.TclError:
+            pass
+
+    def hide_to_tray() -> None:
+        root.withdraw()
+
+    def quit_app() -> None:
+        stop_captioning()
+        if tray_stop[0]:
+            try:
+                tray_stop[0]()
+            except Exception:
+                pass
+        root.quit()
+
+    def poll_tray_queue() -> None:
+        """Process tray actions on the main thread (Tk is not thread-safe)."""
+        try:
+            while True:
+                cmd = tray_cmd_queue.get_nowait()
+                if cmd == "show":
+                    show_window()
+                elif cmd == "quit":
+                    quit_app()
+        except queue.Empty:
+            pass
+        root.after(150, poll_tray_queue)
+
+    tray_stop: list = [None]  # [Callable | None]
+
+    if sys.platform == "win32":
+        # Windows: use native tray (ctypes). X always hides to tray.
+        root.protocol("WM_DELETE_WINDOW", hide_to_tray)
+        try:
+            from tray_win32 import run_tray as run_tray_win32
+            tray_stop[0] = run_tray_win32(
+                tooltip="Live Caption",
+                on_activate=lambda: tray_cmd_queue.put("show"),
+                on_quit=lambda: tray_cmd_queue.put("quit"),
+            )
+            root.after(150, poll_tray_queue)
+        except Exception:
+            root.protocol("WM_DELETE_WINDOW", lambda: (stop_captioning(), root.destroy()))
+    else:
+        root.protocol("WM_DELETE_WINDOW", lambda: (stop_captioning(), root.destroy()))
+
     # Capture hotkey: register once, then re-register when user changes it
     hotkey_registered = [False]
     hotkey_stop: list[Callable[[], None] | None] = [None]

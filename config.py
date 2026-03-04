@@ -4,6 +4,7 @@ Load/save user settings for the caption overlay (width, height, font size).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 CONFIG_NAME = "live-caption-config.json"
@@ -16,8 +17,15 @@ DEFAULTS = {
 }
 
 
+def get_app_base() -> Path:
+    """Directory containing the app (script folder when run from source, exe folder when frozen)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
 def _config_path() -> Path:
-    return Path(__file__).resolve().parent / CONFIG_NAME
+    return get_app_base() / CONFIG_NAME
 
 
 def load_settings() -> dict:

@@ -11,11 +11,12 @@ from typing import Callable
 
 from audio_capture import SAMPLE_RATE, capture_audio
 from caption_utils import format_final, normalize_caption, should_show_partial
+from config import get_app_base
 
 
 def find_model_dir() -> Path | None:
-    """Locate Vosk model under project or current dir."""
-    base = Path(__file__).resolve().parent
+    """Locate Vosk model under app dir (next to exe when frozen, else project root)."""
+    base = get_app_base()
     for name in ("models", "model"):
         d = base / name
         if d.is_dir():

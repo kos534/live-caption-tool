@@ -63,15 +63,33 @@ python main.py
 - Use **microphone** to caption **your** side or room audio.
 - Keep the overlay over the call window so you can read captions without looking away.
 
+## Building the exe (Windows)
+
+To build a single `.exe` file:
+
+1. Install build dependency and run the build script:
+   ```bash
+   pip install -r requirements.txt -r requirements-build.txt
+   build_exe.bat
+   ```
+2. The executable is created at `dist\LiveCaption.exe`.
+3. **Before first run:** Put your Vosk model in a `models` folder next to the exe (same layout as in the project: e.g. `models/vosk-model-small-en-us-0.15/`). You can copy the `models` folder from your project.
+4. Config and settings are stored as `live-caption-config.json` next to the exe.
+
+Optional: set Tesseract path in the app if you use area capture (OCR) and Tesseract is not on PATH.
+
 ## Project structure
 
 ```
 live-caption/
-├── main.py           # Entry point, device selection, start/stop
-├── caption_engine.py # Vosk streaming + audio capture
-├── overlay.py        # Always-on-top caption window
+├── main.py              # Entry point, device selection, start/stop
+├── caption_engine.py    # Vosk streaming + audio capture
+├── overlay.py           # Always-on-top caption window
+├── live-caption.spec    # PyInstaller spec for building exe
+├── build_exe.bat        # Build script (Windows)
 ├── requirements.txt
-├── models/           # Vosk model (download separately)
+├── requirements-build.txt
+├── models/              # Vosk model (download separately; copy next to exe when using built exe)
 └── README.md
 ```
 

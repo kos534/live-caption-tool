@@ -4,3 +4,8 @@ sounddevice>=0.4.6
 vosk>=0.3.45
 # Windows: required to capture speaker/output audio (e.g. USB PnP Sound Device, call audio)
 PyAudioWPatch>=0.2.12.6; sys_platform == "win32"
+# Area capture: hotkey + screen region OCR
+keyboard>=0.13.5
+pynput>=1.7.6
+Pillow>=9.0.0
+pytesseract>=0.3.10

@@ -1,5 +1,7 @@
 {
   "caption_width": 560,
   "caption_height": 300,
-  "font_size": 10
+  "font_size": 10,
+  "capture_hotkey": "Ctrl+Q",
+  "tesseract_path": "C:/Program Files/Tesseract-OCR/tesseract.exe"
 }

@@ -200,7 +200,24 @@ def run_region_selector(
             text: str | None = None
             try:
                 time.sleep(0.1)
-                img = ImageGrab.grab(bbox=bbox)
+                # On Windows, grab(all_screens=True) captures all monitors; then crop to selection.
+                # Plain grab(bbox=...) often only captures the primary display.
+                if sys.platform == "win32":
+                    try:
+                        full = ImageGrab.grab(all_screens=True)
+                        if full is not None and full.size[0] > 0 and full.size[1] > 0:
+                            # Virtual screen origin: image (0,0) = screen (scr_x, scr_y)
+                            left = max(0, min(bbox[0] - scr_x, full.size[0] - 1))
+                            top = max(0, min(bbox[1] - scr_y, full.size[1] - 1))
+                            right = max(left + 1, min(bbox[2] - scr_x, full.size[0]))
+                            bottom = max(top + 1, min(bbox[3] - scr_y, full.size[1]))
+                            img = full.crop((left, top, right, bottom))
+                        else:
+                            img = ImageGrab.grab(bbox=bbox)
+                    except TypeError:
+                        img = ImageGrab.grab(bbox=bbox)
+                else:
+                    img = ImageGrab.grab(bbox=bbox)
                 if img is None or img.size[0] < 2 or img.size[1] < 2:
                     err = "Screenshot failed or area too small."
                 else:

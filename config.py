@@ -14,6 +14,7 @@ DEFAULTS = {
     "font_size": 18,
     "capture_hotkey": "Ctrl+Q",
     "tesseract_path": "",
+    "launch_on_start": [],  # list of paths to start when app starts
 }
 
 
@@ -56,21 +57,28 @@ def load_settings() -> dict:
                     out[k] = max(1, int(v))
                 elif isinstance(v, str) and v.strip().isdigit():
                     out[k] = max(1, int(v.strip()))
+            elif k == "launch_on_start":
+                v = data[k]
+                if isinstance(v, list):
+                    out[k] = [str(x).strip() for x in v if isinstance(x, str) and x.strip()]
         return out
     except Exception:
         return DEFAULTS.copy()
 
 
 def save_settings(settings: dict) -> None:
-    """Persist settings to config file. Always writes all keys including capture_hotkey."""
+    """Persist settings to config file. Merges with existing config so keys not in settings are kept."""
     path = _config_path()
+    existing = load_settings()
     data = {}
     for k in DEFAULTS:
-        v = settings.get(k, DEFAULTS[k])
+        v = settings.get(k) if k in settings else existing.get(k, DEFAULTS[k])
         if k == "capture_hotkey":
             data[k] = (v if isinstance(v, str) and (v or "").strip() else DEFAULTS[k])
         elif k == "tesseract_path":
             data[k] = (v if isinstance(v, str) else DEFAULTS[k]) or ""
+        elif k == "launch_on_start":
+            data[k] = [str(x).strip() for x in (v if isinstance(v, list) else []) if isinstance(x, str) and x.strip()]
         else:
             data[k] = v
     try:

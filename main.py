@@ -169,8 +169,7 @@ def main() -> None:
             pass
 
     def on_area_capture_done(text: str | None, error: str | None = None) -> None:
-        root.lift()
-        root.focus_force()
+        # Don't bring main window to front when capture finishes
         if error:
             status_var.set(f"Capture failed: {error}")
             return
@@ -193,10 +192,7 @@ def main() -> None:
         _last_area_selector_time[0] = now
         # Mouse position at hotkey press = start of selection (screen coords)
         px, py = _get_screen_cursor_pos(root)
-        root.deiconify()
-        root.lift()
-        root.attributes("-topmost", True)
-        root.focus_force()
+        # Don't show or focus main window — only the region selector overlay appears
         root.after(80, lambda: run_region_selector(root, _after_capture, start_xy=(px, py)))
 
     def _after_capture(text: str | None, error: str | None = None) -> None:

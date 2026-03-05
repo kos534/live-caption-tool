@@ -102,13 +102,12 @@ def run_region_selector(
     sel = tk.Toplevel(root)
     sel.overrideredirect(True)
     sel.attributes("-topmost", True)
-    sel.attributes("-alpha", 0.3)
-    sel.configure(bg="#000000", cursor="arrow")
+    # Use very low alpha (not -transparentcolor) so the window still receives mouse events;
+    # transparentcolor causes the overlay to freeze on Windows (no events in transparent areas).
+    sel.attributes("-alpha", 0.02)
+    sel.configure(bg="#100000", cursor="arrow")
     sel.geometry(f"{scr_w}x{scr_h}+{scr_x}+{scr_y}")
 
-    # Hint so user sees the overlay is active
-    hint = tk.Label(sel, text="Move mouse to draw area • Left-click to capture • Esc to cancel", fg="white", bg="#000000", font=("Segoe UI", 12))
-    hint.pack(pady=12)
     canvas = tk.Canvas(sel, highlightthickness=0, bg="#000000", cursor="arrow", width=scr_w, height=scr_h)
     canvas.pack(fill=tk.BOTH, expand=True)
 
@@ -135,7 +134,6 @@ def run_region_selector(
         nonlocal start_x, start_y, rect_id
         sel.update_idletasks()
         sel.update()
-        # Use canvas position (not overlay): canvas is below the hint label so Y would be wrong with sel position
         cx = canvas.winfo_rootx()
         cy = canvas.winfo_rooty()
         if initial_xy is not None:

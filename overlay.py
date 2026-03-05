@@ -70,26 +70,16 @@ class CaptionOverlay:
         )
         self._text.tag_configure("final", foreground="#e0e0e0")
         self._text.tag_configure("partial", foreground="#888888")
-        self._scrollbar = tk.Scrollbar(
-            self._frame,
-            orient=tk.VERTICAL,
-            command=self._text.yview,
-            bg="#2a2a2a",
-            width=8,
-        )
-        self._text.configure(yscrollcommand=self._scrollbar.set)
-        self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(2, 0))
+        self._text.configure(yscrollcommand=lambda *a: None)  # no scrollbar; mouse wheel still scrolls
         self._text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self._frame.bind("<Button-1>", self._on_press)
         self._frame.bind("<B1-Motion>", self._on_drag)
         self._text.bind("<Button-1>", self._on_press)
         self._text.bind("<B1-Motion>", self._on_drag)
-        self._scrollbar.bind("<Button-1>", self._on_press)
-        self._scrollbar.bind("<B1-Motion>", self._on_drag)
-        # Mousewheel scroll
+        # Mousewheel scroll (no scrollbar shown)
+        self._frame.bind("<MouseWheel>", self._on_mousewheel)
         self._text.bind("<MouseWheel>", self._on_mousewheel)
-        self._scrollbar.bind("<MouseWheel>", self._on_mousewheel)
 
         # Resize handle (bottom-right)
         handle_frame = tk.Frame(self._root, bg="#2a2a2a", width=RESIZE_HANDLE_SIZE, height=RESIZE_HANDLE_SIZE)

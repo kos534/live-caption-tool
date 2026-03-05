@@ -104,7 +104,7 @@ def run_region_selector(
     sel.attributes("-topmost", True)
     # Use very low alpha (not -transparentcolor) so the window still receives mouse events;
     # transparentcolor causes the overlay to freeze on Windows (no events in transparent areas).
-    sel.attributes("-alpha", 0.02)
+    sel.attributes("-alpha", 0.002)
     sel.configure(bg="#100000", cursor="arrow")
     sel.geometry(f"{scr_w}x{scr_h}+{scr_x}+{scr_y}")
 

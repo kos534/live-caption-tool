@@ -39,14 +39,19 @@ class CaptionOverlay:
         self._height = max(MIN_HEIGHT, height)
         self._lines: list[str] = []
         self._partial = ""
+        self._level = 0.0  # 0–1, current audio level for volume bar
 
         self._drag_x = 0
         self._drag_y = 0
         self._resize_start: tuple[int, int, int, int] | None = None
 
-        # Content: scrollable text + scrollbar (draggable area)
+        # Root content frame
         self._frame = tk.Frame(self._root, bg="#1a1a1a", padx=PADX, pady=PADY)
         self._frame.pack(fill=tk.BOTH, expand=True)
+
+        # Top: text area
+        text_frame = tk.Frame(self._frame, bg="#1a1a1a")
+        text_frame.pack(fill=tk.BOTH, expand=True)
 
         font = tkfont.Font(family="Segoe UI", size=font_size, weight="normal")
         # Approximate chars that fit in width; height in lines from window height
@@ -54,7 +59,7 @@ class CaptionOverlay:
         line_height_px = max(12, int(font_size * 1.4))
         height_lines = max(3, (self._height - PADY * 2 - 24) // line_height_px)
         self._text = tk.Text(
-            self._frame,
+            text_frame,
             font=font,
             fg="#e0e0e0",
             bg="#1a1a1a",
@@ -81,6 +86,27 @@ class CaptionOverlay:
         self._frame.bind("<MouseWheel>", self._on_mousewheel)
         self._text.bind("<MouseWheel>", self._on_mousewheel)
 
+        # Bottom: compact volume bar (shows current audio level)
+        vol_frame = tk.Frame(self._frame, bg="#1a1a1a")
+        vol_frame.pack(fill=tk.X, pady=(4, 0))
+        self._vol_canvas_height = 10
+        self._vol_canvas = tk.Canvas(
+            vol_frame,
+            height=self._vol_canvas_height,
+            highlightthickness=0,
+            bd=0,
+            bg="#1a1a1a",
+        )
+        self._vol_canvas.pack(fill=tk.X, expand=True)
+        self._vol_rect = self._vol_canvas.create_rectangle(
+            0,
+            0,
+            0,
+            self._vol_canvas_height,
+            fill="#22c55e",
+            width=0,
+        )
+
         # Resize handle (bottom-right)
         handle_frame = tk.Frame(self._root, bg="#2a2a2a", width=RESIZE_HANDLE_SIZE, height=RESIZE_HANDLE_SIZE)
         handle_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 2), pady=(0, 2))
@@ -104,6 +130,24 @@ class CaptionOverlay:
         self._root.geometry(f"{self._width}x{self._height}+100+100")
         self._root.minsize(MIN_WIDTH, MIN_HEIGHT)
         self._update_display()
+
+    def _update_volume_bar(self) -> None:
+        """Render the small audio level bar based on self._level (0–1)."""
+        level = max(0.0, min(float(self._level), 1.0))
+        width = max(1, self._vol_canvas.winfo_width() or self._width - PADX * 2)
+        filled = int(width * level)
+        # Simple green→yellow→red gradient
+        if level < 0.5:
+            t = level / 0.5
+            r = int(0 + (255 - 0) * t)
+            g = 255
+        else:
+            t = (level - 0.5) / 0.5
+            r = 255
+            g = int(255 + (0 - 255) * t)
+        color = f"#{r:02x}{g:02x}00"
+        self._vol_canvas.coords(self._vol_rect, 0, 0, filled, self._vol_canvas_height)
+        self._vol_canvas.itemconfig(self._vol_rect, fill=color)
 
     def _on_mousewheel(self, event: tk.Event) -> None:
         self._text.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -174,6 +218,18 @@ class CaptionOverlay:
         self._text.config(state=tk.DISABLED)
         # Scroll to bottom so latest text is visible (user can scroll up to see rest)
         self._text.see(tk.END)
+        self._update_volume_bar()
+
+    def set_volume_level(self, level: float) -> None:
+        """
+        Update the current audio level for the volume bar.
+        level expected in [0, 1].
+        """
+        try:
+            self._level = float(level)
+        except (TypeError, ValueError):
+            self._level = 0.0
+        self._update_volume_bar()
 
     def run(self) -> None:
         self._root.mainloop()

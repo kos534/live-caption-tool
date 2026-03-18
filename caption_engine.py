@@ -48,6 +48,7 @@ def run_caption_engine(
     on_final: Callable[[str], None],
     stop_event: Callable[[], bool],
     use_loopback: bool = False,
+    on_level: Callable[[float], None] | None = None,
 ) -> None:
     """
     Run audio capture and Vosk recognition in a background thread.
@@ -61,6 +62,24 @@ def run_caption_engine(
     def on_audio_data(data: bytes) -> None:
         if stop_event():
             return
+        # Optional: compute simple RMS-based level for UI volume meter.
+        if on_level is not None and data:
+            try:
+                import struct
+
+                sample_count = len(data) // 2
+                if sample_count:
+                    samples = struct.unpack("<" + "h" * sample_count, data)
+                    # RMS over 16‑bit samples, normalize to 0–1 range.
+                    sq_sum = 0.0
+                    for s in samples:
+                        sq_sum += float(s) * float(s)
+                    rms = (sq_sum / sample_count) ** 0.5
+                    norm = min(rms / 20000.0, 1.0)  # heuristic scaling
+                    on_level(norm)
+            except Exception:
+                # Never let meter errors break captioning.
+                pass
         if rec.AcceptWaveform(data):
             result = rec.Result()
             if result:

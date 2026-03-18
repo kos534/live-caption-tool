@@ -2,7 +2,7 @@
   "caption_width": 560,
   "caption_height": 300,
   "font_size": 12,
-  "capture_hotkey": "Alt+Q",
+  "capture_hotkey": "Ctrl+Q",
   "tesseract_path": "C:/Program Files/Tesseract-OCR/tesseract.exe",
   "launch_on_start": [
     "D:/Program/Magicam/Magicam.exe",

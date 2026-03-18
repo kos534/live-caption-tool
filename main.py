@@ -62,6 +62,103 @@ def main() -> None:
     overlay: CaptionOverlay | None = None
     overlay_root: tk.Tk | None = None
     is_captioning = False
+    # UI-level audio meter (in "Audio source" section)
+    audio_level: float = 0.0
+    audio_meter_canvas: tk.Canvas | None = None
+    audio_meter_rect: int | None = None
+    meter_stop_event = threading.Event()
+    meter_thread: threading.Thread | None = None
+
+    def _update_audio_meter(level: float) -> None:
+        """Update the horizontal volume bar in the Audio source section."""
+        nonlocal audio_level
+        audio_level = max(0.0, min(float(level), 1.0))
+        if audio_meter_canvas is None or audio_meter_rect is None:
+            return
+        canvas = audio_meter_canvas
+        try:
+            width = max(1, int(canvas.winfo_width()))
+        except tk.TclError:
+            width = 1
+        filled = int(width * audio_level)
+        # Simple green→yellow→red gradient
+        if audio_level < 0.5:
+            t = audio_level / 0.5
+            r = int(0 + (255 - 0) * t)
+            g = 255
+        else:
+            t = (audio_level - 0.5) / 0.5
+            r = 255
+            g = int(255 + (0 - 255) * t)
+        color = f"#{r:02x}{g:02x}00"
+        canvas.coords(audio_meter_rect, 0, 0, filled, int(canvas.winfo_height() or 6))
+        canvas.itemconfig(audio_meter_rect, fill=color)
+
+    def _compute_level_from_chunk(data: bytes) -> float:
+        """Compute simple RMS-based level (0–1) from 16-bit mono PCM bytes."""
+        if not data:
+            return 0.0
+        try:
+            import struct
+
+            sample_count = len(data) // 2
+            if not sample_count:
+                return 0.0
+            samples = struct.unpack("<" + "h" * sample_count, data)
+            sq_sum = 0.0
+            for s in samples:
+                sq_sum += float(s) * float(s)
+            rms = (sq_sum / sample_count) ** 0.5
+            return min(rms / 20000.0, 1.0)
+        except Exception:
+            return 0.0
+
+    def stop_level_monitor() -> None:
+        """Stop background audio-level capture (if running)."""
+        nonlocal meter_thread
+        meter_stop_event.set()
+        meter_thread = None
+
+    def start_level_monitor(device_index: int | None, is_loopback: bool) -> None:
+        """
+        Start lightweight audio capture for the level meter, even when captioning is stopped.
+        Uses the same device indices/backends as captioning.
+        """
+        nonlocal meter_thread
+        # Stop any existing monitor
+        stop_level_monitor()
+        meter_stop_event.clear()
+
+        def _stop_flag() -> bool:
+            return meter_stop_event.is_set()
+
+        def _on_data(chunk: bytes) -> None:
+            level = _compute_level_from_chunk(chunk)
+            try:
+                # Always marshal UI updates to Tk main loop
+                if audio_meter_canvas is not None:
+                    audio_meter_canvas.after(0, lambda lv=level: _update_audio_meter(lv))
+            except tk.TclError:
+                pass
+
+        def _run() -> None:
+            from audio_capture import capture_audio
+
+            try:
+                capture_audio(
+                    device_index,
+                    on_data=_on_data,
+                    stop_event=_stop_flag,
+                    use_pyaudiowpatch=is_loopback,
+                    is_loopback=is_loopback,
+                )
+            except Exception:
+                # Meter is best-effort only; don't crash app.
+                pass
+
+        t = threading.Thread(target=_run, daemon=True)
+        meter_thread = t
+        t.start()
 
     def start_captioning(device_index: int | None, is_loopback: bool) -> None:
         nonlocal overlay, overlay_root, stop_event
@@ -89,6 +186,15 @@ def main() -> None:
         def on_final(text: str) -> None:
             on_main_thread(lambda: overlay.append_final(text))
 
+        def on_level(level: float) -> None:
+            # Ensure UI updates happen on Tk main thread
+            def apply_level() -> None:
+                overlay.set_volume_level(level)
+                _update_audio_meter(level)
+
+            if overlay_root and overlay_root.winfo_exists():
+                overlay_root.after(0, apply_level)
+
         run_caption_engine(
             model_dir,
             device_index,
@@ -96,6 +202,7 @@ def main() -> None:
             on_final=on_final,
             stop_event=lambda: stop_event.is_set(),
             use_loopback=is_loopback,
+            on_level=on_level,
         )
         overlay._root.lift()
         overlay._root.attributes("-topmost", True)
@@ -264,6 +371,11 @@ def main() -> None:
         nonlocal is_captioning
         if is_captioning:
             stop_captioning()
+            # Resume background level monitor when captioning stops
+            name = device_var.get()
+            dev = next((d for d in devices if d.name == name), devices[0] if devices else None)
+            if dev:
+                start_level_monitor(dev.index, dev.is_loopback)
             is_captioning = False
             toggle_btn.configure(text="Start")
             status_var.set("Stopped.")
@@ -282,6 +394,8 @@ def main() -> None:
                 )
                 tp = (tesseract_path_var.get() or "").strip()
                 save_settings({"caption_width": w, "caption_height": h, "font_size": fs, "capture_hotkey": hk, "tesseract_path": tp})
+                # Stop background meter and let caption engine drive the level updates
+                stop_level_monitor()
                 start_captioning(dev.index, dev.is_loopback)
                 is_captioning = True
                 toggle_btn.configure(text="Stop")
@@ -301,7 +415,37 @@ def main() -> None:
     ttk.Label(audio_frame, text="Capture from").pack(anchor=tk.W)
     combo = ttk.Combobox(audio_frame, textvariable=device_var, height=6, state="readonly", font=("Segoe UI", 10))
     combo["values"] = [d.name for d in devices]
-    combo.pack(fill=tk.X, pady=(8, 0))
+    combo.pack(fill=tk.X, pady=(8, 4))
+    # Horizontal audio level meter under device list
+    meter_container = tk.Frame(audio_frame, bg=root.cget("bg"))
+    meter_container.pack(fill=tk.X, pady=(2, 0))
+    meter_label = ttk.Label(meter_container, text="Input level", font=("Segoe UI", 9))
+    meter_label.pack(anchor=tk.W)
+    audio_meter_canvas = tk.Canvas(
+        meter_container,
+        height=8,
+        highlightthickness=0,
+        bd=0,
+        bg=root.cget("bg"),
+    )
+    audio_meter_canvas.pack(fill=tk.X, pady=(2, 0))
+    audio_meter_rect = audio_meter_canvas.create_rectangle(
+        0,
+        0,
+        0,
+        8,
+        width=0,
+        fill="#22c55e",
+    )
+
+    def _on_device_change(_event: tk.Event | None = None) -> None:
+        """Restart level monitor for newly selected device."""
+        name = device_var.get()
+        dev = next((d for d in devices if d.name == name), devices[0] if devices else None)
+        if dev:
+            start_level_monitor(dev.index, dev.is_loopback)
+
+    combo.bind("<<ComboboxSelected>>", _on_device_change)
     ctrl_frame = ttk.LabelFrame(top_row, text="  Captioning  ", padding=(16, 14))
     ctrl_frame.grid(row=0, column=1, sticky=tk.NSEW, padx=(10, 0))
     toggle_btn = ttk.Button(ctrl_frame, text="Start", command=on_toggle)
@@ -689,6 +833,16 @@ def main() -> None:
 
     hotkey_bind_id = root.bind("<Map>", register_hotkey_once)
     root.after(500, register_hotkey_once)
+
+    # Start initial level monitor for default selected device
+    try:
+        initial_name = device_var.get()
+        initial_dev = next((d for d in devices if d.name == initial_name), devices[0] if devices else None)
+        if initial_dev:
+            start_level_monitor(initial_dev.index, initial_dev.is_loopback)
+    except Exception:
+        pass
+
     root.mainloop()
 
 

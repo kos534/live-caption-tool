@@ -1,85 +1,45 @@
-"""
-Load/save user settings for the caption overlay (width, height, font size).
-"""
-from __future__ import annotations
-
-import json
 import sys
 from pathlib import Path
 
-CONFIG_NAME = "live-caption-config.json"
-DEFAULTS = {
-    "caption_width": 560,
-    "caption_height": 180,
-    "font_size": 18,
-    "model_size": "small.en",
-    "launch_on_start": [],  # list of paths to start when app starts
-}
+TARGET_SAMPLE_RATE = 16000  # what the Whisper models expect; captured audio is resampled to this
+FRAME_MS = 30
 
 
-def get_app_base() -> Path:
-    """Directory containing the app (script folder when run from source, exe folder when frozen)."""
+def _app_base() -> Path:
+    """Directory containing the app: the exe's folder when frozen, this file's folder otherwise."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
-def _config_path() -> Path:
-    return get_app_base() / CONFIG_NAME
+MODELS_DIR = _app_base() / "models"  # downloaded faster-whisper models are cached here, not
+                                      # in the user's global HF cache, so they travel with the app
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Each preset maps to (partial_model, final_model): a fast model for low-latency interim
+# captions, and a more accurate model for the finalized line.
+MODEL_PRESETS = {
+    "tiny.en": ("tiny.en", "tiny.en"),
+    "base.en": ("tiny.en", "base.en"),
+    "small.en": ("tiny.en", "small.en"),
+    "medium.en": ("base.en", "medium.en"),
+}
+DEFAULT_MODEL = "small.en"
+DEVICE = "cpu"
+COMPUTE_TYPE = "int8"
 
-MODEL_SIZES = ("tiny.en", "base.en", "small.en", "medium.en")
+SILENCE_RMS_THRESHOLD = 0.015
+FINALIZE_SILENCE_MS = 700
+MAX_UTTERANCE_S = 20
+PARTIAL_INTERVAL_S = 1.0
+PARTIAL_WINDOW_S = 5.0
+MAX_QUEUE_LAG_S = 3.0  # drop older buffered audio beyond this to avoid captions drifting behind real time
 
+WINDOW_WIDTH = 640
+WINDOW_HEIGHT = 160
+MIN_WIDTH = 300
+MIN_HEIGHT = 120
 
-def load_settings() -> dict:
-    """Return settings dict (caption_width, caption_height, font_size, model_size, launch_on_start)."""
-    path = _config_path()
-    if not path.is_file():
-        return DEFAULTS.copy()
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return DEFAULTS.copy()
-        out = DEFAULTS.copy()
-        for k in DEFAULTS:
-            if k not in data:
-                continue
-            if k == "model_size":
-                v = data[k]
-                if isinstance(v, str) and v.strip() in MODEL_SIZES:
-                    out[k] = v.strip()
-            elif k in ("caption_width", "caption_height", "font_size"):
-                v = data[k]
-                if isinstance(v, (int, float)):
-                    out[k] = max(1, int(v))
-                elif isinstance(v, str) and v.strip().isdigit():
-                    out[k] = max(1, int(v.strip()))
-            elif k == "launch_on_start":
-                v = data[k]
-                if isinstance(v, list):
-                    out[k] = [str(x).strip() for x in v if isinstance(x, str) and x.strip()]
-        return out
-    except Exception:
-        return DEFAULTS.copy()
-
-
-def save_settings(settings: dict) -> None:
-    """Persist settings to config file. Merges with existing config so keys not in settings are kept."""
-    path = _config_path()
-    existing = load_settings()
-    data = {}
-    for k in DEFAULTS:
-        v = settings.get(k) if k in settings else existing.get(k, DEFAULTS[k])
-        if k == "model_size":
-            data[k] = (v if isinstance(v, str) and v.strip() in MODEL_SIZES else DEFAULTS[k])
-        elif k == "launch_on_start":
-            data[k] = [str(x).strip() for x in (v if isinstance(v, list) else []) if isinstance(x, str) and x.strip()]
-        else:
-            data[k] = v
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
+DEFAULT_FONT_SIZE = 16
+MIN_FONT_SIZE = 10
+MAX_FONT_SIZE = 36

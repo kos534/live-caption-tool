@@ -1,17 +1,35 @@
 # Live Caption
 
-Real-time speech-to-text overlay that captures audio from **WhatsApp Desktop**, **Viber**, or any app and displays live captions in an always-on-top window.
+Real-time captions for whatever is playing through your Windows speakers — like Chrome Live Caption,
+but at the OS level, so it works for any app (browser, Zoom, VLC, games, etc.).
 
 ## How it works
 
-- **Audio source**: Microphone, Stereo Mix (what you hear), or **WASAPI loopback** (speaker output) on Windows.
-- **Speech-to-text**: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — offline, no API keys. Much higher accuracy than the previous Vosk-based engine, with real punctuation and capitalization.
-- **Segmentation**: incoming audio is split into speech utterances with voice activity detection (silence is never sent to the model). Interim ("partial") captions are shown while you're speaking by periodically re-transcribing the in-progress utterance; a higher-quality pass runs once you pause to produce the finalized, punctuated line.
-- **Display**: Draggable, transparent caption window that stays on top.
+- **Audio source**: WASAPI loopback capture of the current default output device (via `PyAudioWPatch`),
+  so it captures system audio without needing a microphone or "Stereo Mix". Audio is buffered at its
+  native sample rate and resampled once per utterance with a proper anti-aliasing filter
+  (`scipy.signal.resample_poly`) right before each Whisper call, rather than resampling every small
+  audio callback (which introduces boundary artifacts).
+- **Speech-to-text**: [faster-whisper](https://github.com/SYSTRAN/faster-whisper), running fully offline,
+  no API keys, no audio leaves the machine. Two models are used per preset: a fast model for low-latency
+  interim captions while you're mid-utterance, and a more accurate model (with a wider beam search) for
+  the finalized line once a pause is detected. Pick a preset from the ⚙ settings panel in the caption
+  window (`tiny.en` / `base.en` / `small.en` / `medium.en`) — it hot-swaps without restarting the app.
+- **Segmentation**: an energy-based voice activity detector splits the audio stream into utterances.
+  Whisper's own VAD filter is used too, and the temperature fallback ladder is disabled
+  (`temperature=0.0`) along with a repetition penalty, since retries at higher temperature are a known
+  source of hallucinated/looping text. Confidence-score filtering (to suppress hallucination on silence)
+  is only applied to the final pass — the fast partial-pass model is naturally less confident, so the
+  same thresholds would filter out nearly all of its output.
+- **Staying in sync**: each cycle drains and merges all currently buffered audio in one pass rather than
+  processing it chunk by chunk; if transcription ever falls behind real time, older buffered audio is
+  dropped so captions stay close to live instead of drifting further and further behind.
+- **Window**: borderless, always-on-top, resizable (drag the bottom-right corner), and can be dragged
+  anywhere by its title strip. Caption text is read-only but selectable. Title strip controls: ⚙ settings
+  (model preset, font size), **Clear**, **Copy** (copies the current selection, or the whole transcript
+  if nothing is selected), and close.
 
 ## Setup
-
-### 1. Create virtual environment and install
 
 ```bash
 cd live-caption-tool
@@ -20,90 +38,57 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-> Note: `webrtcvad` (used for voice activity detection) is pinned alongside `setuptools<81`, since newer setuptools removed the `pkg_resources` module that webrtcvad imports. If either fails to install on your platform, that's fine — the app falls back to a built-in energy-based VAD automatically and still works.
+The first run downloads the selected preset's faster-whisper models automatically (cached under your
+user profile) — this needs an internet connection once per model size.
 
-### 2. Capture speaker output on Windows (USB PnP Sound Device, etc.)
-
-To caption **what's playing through your speakers** (calls, videos, USB PnP Sound Device):
-
-- **WASAPI loopback (recommended)**
-  Install [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) so the app can record speaker output:
-  ```bash
-  pip install PyAudioWPatch
-  ```
-  Then run the app and in **Audio source** choose the device that has **(loopback)** in the name and matches your speakers, e.g.:
-  - **Speakers (USB PnP Sound Device) (loopback)**
-  - **Speakers (Realtek) (loopback)**
-  If you don't see any "(loopback)" option, PyAudioWPatch is not installed or not in use.
-
-- **Stereo Mix**
-  Enable "Stereo Mix" in Windows Sound settings and set it as default recording device, then select it in the app.
-
-- **Microphone**
-  Use the microphone to caption your voice or room audio (no speaker output).
-
-### 3. Download the faster-whisper model (optional pre-fetch)
-
-The app auto-downloads its model on first use. To pre-fetch it (so first launch works fully offline), run:
-
-```bash
-python download_model.py --model-size small.en
-```
-
-You can pick a different size in the app's **Model size** dropdown (`tiny.en`/`base.en`/`small.en`/`medium.en`) — smaller is faster/lower-latency, larger is more accurate. `small.en` is the default and a good balance for most machines.
-
-### 4. Run the app
+## Run
 
 ```bash
 python main.py
 ```
 
-1. Select the **audio input** (loopback for call audio, or microphone).
-2. Click **Start** — captions appear in the overlay.
-3. Drag the overlay where you want it; it stays on top of WhatsApp/Viber.
+Or just double-click `run.bat`, which creates the venv and installs dependencies on first run.
 
-## Usage tips
+Play some audio (a video, a call, music) and captions will appear once speech is detected. If nothing
+is playing, WASAPI loopback capture idles by design and no captions will appear — that's expected.
 
-- Use **loopback** (with PyAudioWPatch) to caption the **remote** side of the call.
-- Use **microphone** to caption **your** side or room audio.
-- Keep the overlay over the call window so you can read captions without looking away.
-- If partial captions feel laggy on your machine, switch to a smaller model size (`base.en` or `tiny.en`) in the Captioning section.
+## Building a standalone .exe
 
-## Building the exe (Windows)
+```bash
+build_exe.bat
+```
 
-To build a single `.exe` file:
+This installs `pyinstaller` (see `requirements-build.txt`) and builds using `LiveCaption.spec`. The
+result is `dist\LiveCaption\LiveCaption.exe` — a folder you can copy/zip and run on another Windows
+machine without Python installed. Models still download on first launch (same as running from source)
+and are cached under the user profile, so they aren't bundled into the exe itself.
 
-1. Install build dependency and run the build script:
-   ```bash
-   pip install -r requirements.txt -r requirements-build.txt
-   build_exe.bat
-   ```
-2. `build_exe.bat` automatically pre-fetches the default model (`small.en`) into `models/` if it isn't already there, and `live-caption.spec` bundles whatever's in `models/faster-whisper-*` straight into the exe — so the built exe works offline out of the box. To bundle a different size, run `python download_model.py --model-size <size>` first, then build.
-3. The executable is created at `dist\LiveCaption\LiveCaption.exe`.
-4. Config and settings are stored as `live-caption-config.json` next to the exe.
+## Configuration
+
+Tweak `config.py`:
+
+- `MODEL_PRESETS` / `DEFAULT_MODEL` — each preset maps to a (partial, final) model pair. Also
+  selectable at runtime from the ⚙ settings panel.
+- `MAX_QUEUE_LAG_S` — how much buffered audio backlog is tolerated before older audio is dropped to
+  keep captions in sync. Lower this if captions still drift behind on a slow machine.
+- `SILENCE_RMS_THRESHOLD` — raise if background noise triggers false captions, lower if quiet speech
+  is missed.
+- `FINALIZE_SILENCE_MS` — how long a pause must be before a line is finalized.
+- `DEFAULT_FONT_SIZE` / `MIN_FONT_SIZE` / `MAX_FONT_SIZE` — also adjustable live via the ⚙ settings panel.
+- `WINDOW_WIDTH` / `WINDOW_HEIGHT` — initial caption window size.
 
 ## Project structure
 
 ```
 live-caption-tool/
-├── main.py              # Entry point, device selection, start/stop, settings UI
-├── caption_engine.py     # VAD-based streaming/endpointing engine on top of faster-whisper
-├── whisper_engine.py     # faster-whisper model lifecycle + partial/final transcription passes
-├── vad.py                # Voice activity detection (webrtcvad, with energy-based fallback)
-├── audio_capture.py       # Audio device capture + anti-aliased resampling to 16kHz mono
-├── caption_utils.py       # Text normalization helpers
-├── overlay.py             # Always-on-top caption window
-├── config.py               # Settings persistence
-├── tray_win32.py           # Windows system tray icon
-├── download_model.py       # Optional model pre-fetch script
-├── live-caption.spec       # PyInstaller spec for building exe
-├── build_exe.bat           # Build script (Windows)
-├── requirements.txt
-├── requirements-build.txt
-├── models/                 # faster-whisper model cache (downloaded, not checked in)
-└── README.md
+├── main.py              # Entry point, wires capture -> transcriber -> window together
+├── audio_capture.py      # WASAPI loopback capture (PyAudioWPatch) at the device's native rate
+├── transcriber.py         # VAD-based segmentation + faster-whisper partial/final transcription
+├── caption_window.py      # Borderless, draggable, resizable overlay: text, settings, Clear, Copy
+├── config.py               # Tunable settings
+├── requirements.txt         # PyAudioWPatch, faster-whisper, numpy, scipy
+├── requirements-build.txt    # pyinstaller (only needed to build the .exe)
+├── LiveCaption.spec           # PyInstaller build spec
+├── build_exe.bat               # Builds dist\LiveCaption\LiveCaption.exe
+└── run.bat                      # Sets up the venv and runs from source
 ```
-
-## License
-
-MIT.

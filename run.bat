@@ -1,13 +1,8 @@
 @echo off
-setlocal
 cd /d "%~dp0"
-
-if exist ".venv\Scripts\activate.bat" (
-    call .venv\Scripts\activate.bat
-) else if exist "venv\Scripts\activate.bat" (
-    call venv\Scripts\activate.bat
+if not exist .venv (
+    python -m venv .venv
+    .venv\Scripts\python.exe -m pip install --upgrade pip
+    .venv\Scripts\python.exe -m pip install -r requirements.txt
 )
-
-start "" pythonw main.py
-echo Live Caption started. You can close this window.
-timeout /t 2 >nul
+.venv\Scripts\python.exe main.py

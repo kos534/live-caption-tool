@@ -5,7 +5,8 @@ Real-time speech-to-text overlay that captures audio from **WhatsApp Desktop**, 
 ## How it works
 
 - **Audio source**: Microphone, Stereo Mix (what you hear), or **WASAPI loopback** (speaker output) on Windows.
-- **Speech-to-text**: [Vosk](https://alphacephei.com/vosk/) — offline, low-latency, no API keys.
+- **Speech-to-text**: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — offline, no API keys. Much higher accuracy than the previous Vosk-based engine, with real punctuation and capitalization.
+- **Segmentation**: incoming audio is split into speech utterances with voice activity detection (silence is never sent to the model). Interim ("partial") captions are shown while you're speaking by periodically re-transcribing the in-progress utterance; a higher-quality pass runs once you pause to produce the finalized, punctuated line.
 - **Display**: Draggable, transparent caption window that stays on top.
 
 ## Setup
@@ -13,39 +14,43 @@ Real-time speech-to-text overlay that captures audio from **WhatsApp Desktop**, 
 ### 1. Create virtual environment and install
 
 ```bash
-cd live-caption
+cd live-caption-tool
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> Note: `webrtcvad` (used for voice activity detection) is pinned alongside `setuptools<81`, since newer setuptools removed the `pkg_resources` module that webrtcvad imports. If either fails to install on your platform, that's fine — the app falls back to a built-in energy-based VAD automatically and still works.
+
 ### 2. Capture speaker output on Windows (USB PnP Sound Device, etc.)
 
-To caption **what’s playing through your speakers** (calls, videos, USB PnP Sound Device):
+To caption **what's playing through your speakers** (calls, videos, USB PnP Sound Device):
 
-- **WASAPI loopback (recommended)**  
+- **WASAPI loopback (recommended)**
   Install [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) so the app can record speaker output:
   ```bash
   pip install PyAudioWPatch
   ```
   Then run the app and in **Audio source** choose the device that has **(loopback)** in the name and matches your speakers, e.g.:
   - **Speakers (USB PnP Sound Device) (loopback)**
-  - **Speakers (Realtek) (loopback)**  
-  If you don’t see any “(loopback)” option, PyAudioWPatch is not installed or not in use.
+  - **Speakers (Realtek) (loopback)**
+  If you don't see any "(loopback)" option, PyAudioWPatch is not installed or not in use.
 
-- **Stereo Mix**  
-  Enable “Stereo Mix” in Windows Sound settings and set it as default recording device, then select it in the app.
+- **Stereo Mix**
+  Enable "Stereo Mix" in Windows Sound settings and set it as default recording device, then select it in the app.
 
-- **Microphone**  
+- **Microphone**
   Use the microphone to caption your voice or room audio (no speaker output).
 
-### 3. Download Vosk language model (first run)
+### 3. Download the faster-whisper model (optional pre-fetch)
 
-Run the helper script to download a small English model (~40 MB):
+The app auto-downloads its model on first use. To pre-fetch it (so first launch works fully offline), run:
 
 ```bash
-python download_model.py
+python download_model.py --model-size small.en
 ```
+
+You can pick a different size in the app's **Model size** dropdown (`tiny.en`/`base.en`/`small.en`/`medium.en`) — smaller is faster/lower-latency, larger is more accurate. `small.en` is the default and a good balance for most machines.
 
 ### 4. Run the app
 
@@ -62,6 +67,7 @@ python main.py
 - Use **loopback** (with PyAudioWPatch) to caption the **remote** side of the call.
 - Use **microphone** to caption **your** side or room audio.
 - Keep the overlay over the call window so you can read captions without looking away.
+- If partial captions feel laggy on your machine, switch to a smaller model size (`base.en` or `tiny.en`) in the Captioning section.
 
 ## Building the exe (Windows)
 
@@ -72,24 +78,29 @@ To build a single `.exe` file:
    pip install -r requirements.txt -r requirements-build.txt
    build_exe.bat
    ```
-2. The executable is created at `dist\LiveCaption.exe`.
-3. **Before first run:** Put your Vosk model in a `models` folder next to the exe (same layout as in the project: e.g. `models/vosk-model-small-en-us-0.15/`). You can copy the `models` folder from your project.
+2. `build_exe.bat` automatically pre-fetches the default model (`small.en`) into `models/` if it isn't already there, and `live-caption.spec` bundles whatever's in `models/faster-whisper-*` straight into the exe — so the built exe works offline out of the box. To bundle a different size, run `python download_model.py --model-size <size>` first, then build.
+3. The executable is created at `dist\LiveCaption\LiveCaption.exe`.
 4. Config and settings are stored as `live-caption-config.json` next to the exe.
-
-Optional: set Tesseract path in the app if you use area capture (OCR) and Tesseract is not on PATH.
 
 ## Project structure
 
 ```
-live-caption/
-├── main.py              # Entry point, device selection, start/stop
-├── caption_engine.py    # Vosk streaming + audio capture
-├── overlay.py           # Always-on-top caption window
-├── live-caption.spec    # PyInstaller spec for building exe
-├── build_exe.bat        # Build script (Windows)
+live-caption-tool/
+├── main.py              # Entry point, device selection, start/stop, settings UI
+├── caption_engine.py     # VAD-based streaming/endpointing engine on top of faster-whisper
+├── whisper_engine.py     # faster-whisper model lifecycle + partial/final transcription passes
+├── vad.py                # Voice activity detection (webrtcvad, with energy-based fallback)
+├── audio_capture.py       # Audio device capture + anti-aliased resampling to 16kHz mono
+├── caption_utils.py       # Text normalization helpers
+├── overlay.py             # Always-on-top caption window
+├── config.py               # Settings persistence
+├── tray_win32.py           # Windows system tray icon
+├── download_model.py       # Optional model pre-fetch script
+├── live-caption.spec       # PyInstaller spec for building exe
+├── build_exe.bat           # Build script (Windows)
 ├── requirements.txt
 ├── requirements-build.txt
-├── models/              # Vosk model (download separately; copy next to exe when using built exe)
+├── models/                 # faster-whisper model cache (downloaded, not checked in)
 └── README.md
 ```
 

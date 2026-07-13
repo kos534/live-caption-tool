@@ -18,7 +18,6 @@ MAX_LINES_STORED = 500  # keep full history for scrolling, cap for memory
 class CaptionOverlay:
     def __init__(
         self,
-        max_lines: int = 4,
         font_size: int = 18,
         width: int = 560,
         height: int = 180,
@@ -33,7 +32,6 @@ class CaptionOverlay:
         self._root.overrideredirect(True)
         self._root.configure(bg="#1a1a1a")
         self._root.attributes("-alpha", 0.92)
-        self._max_lines = max_lines  # used only for merging short segments
         self._font_size = font_size
         self._width = max(MIN_WIDTH, width)
         self._height = max(MIN_HEIGHT, height)
@@ -189,14 +187,6 @@ class CaptionOverlay:
         if not text:
             return
         text = text.strip()
-        max_merge_chars = 25
-        if self._lines and len(text) <= max_merge_chars and text.count(" ") <= 1:
-            last = self._lines[-1]
-            if len(last) + 1 + len(text) <= 72:
-                self._lines[-1] = f"{last} {text}"
-                self._partial = ""
-                self._update_display()
-                return
         self._lines.append(text)
         while len(self._lines) > MAX_LINES_STORED:
             self._lines.pop(0)

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 6 ./.venv/Scripts/python.exe main.py)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(./.venv/Scripts/python.exe \"C:\\\\Users\\\\night\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\e--guassistant-live-caption-tool\\\\d3602eab-2dc1-4eda-afff-e5187a0255f4\\\\scratchpad\\\\test_style.py\")",
+      "Bash(tasklist //FI \"IMAGENAME eq python.exe\")"
+    ]
+  }
+}

@@ -12,8 +12,7 @@ DEFAULTS = {
     "caption_width": 560,
     "caption_height": 180,
     "font_size": 18,
-    "capture_hotkey": "Ctrl+Q",
-    "tesseract_path": "",
+    "model_size": "small.en",
     "launch_on_start": [],  # list of paths to start when app starts
 }
 
@@ -29,8 +28,11 @@ def _config_path() -> Path:
     return get_app_base() / CONFIG_NAME
 
 
+MODEL_SIZES = ("tiny.en", "base.en", "small.en", "medium.en")
+
+
 def load_settings() -> dict:
-    """Return settings dict (caption_width, caption_height, font_size, capture_hotkey, tesseract_path)."""
+    """Return settings dict (caption_width, caption_height, font_size, model_size, launch_on_start)."""
     path = _config_path()
     if not path.is_file():
         return DEFAULTS.copy()
@@ -43,14 +45,10 @@ def load_settings() -> dict:
         for k in DEFAULTS:
             if k not in data:
                 continue
-            if k == "capture_hotkey":
+            if k == "model_size":
                 v = data[k]
-                if isinstance(v, str) and v.strip():
+                if isinstance(v, str) and v.strip() in MODEL_SIZES:
                     out[k] = v.strip()
-            elif k == "tesseract_path":
-                v = data[k]
-                if isinstance(v, str):
-                    out[k] = (v or "").strip()
             elif k in ("caption_width", "caption_height", "font_size"):
                 v = data[k]
                 if isinstance(v, (int, float)):
@@ -73,10 +71,8 @@ def save_settings(settings: dict) -> None:
     data = {}
     for k in DEFAULTS:
         v = settings.get(k) if k in settings else existing.get(k, DEFAULTS[k])
-        if k == "capture_hotkey":
-            data[k] = (v if isinstance(v, str) and (v or "").strip() else DEFAULTS[k])
-        elif k == "tesseract_path":
-            data[k] = (v if isinstance(v, str) else DEFAULTS[k]) or ""
+        if k == "model_size":
+            data[k] = (v if isinstance(v, str) and v.strip() in MODEL_SIZES else DEFAULTS[k])
         elif k == "launch_on_start":
             data[k] = [str(x).strip() for x in (v if isinstance(v, list) else []) if isinstance(x, str) and x.strip()]
         else:

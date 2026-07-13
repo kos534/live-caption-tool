@@ -11,7 +11,7 @@ import sys
 from dataclasses import dataclass
 from typing import Callable
 
-# Vosk expects 16 kHz mono 16-bit PCM
+# Whisper/VAD expect 16 kHz mono 16-bit PCM
 SAMPLE_RATE = 16000
 CHANNELS = 1
 CHUNK_SEC = 0.2
@@ -74,38 +74,38 @@ def list_devices() -> list[AudioDevice]:
 
 
 def _resample_to_16k_mono(frames: bytes, in_rate: int, in_channels: int) -> bytes:
-    """Downsample to 16 kHz mono 16-bit. Stereo: average channels. Linear interpolation for cleaner speech."""
-    import struct
-    out: list[int] = []
+    """
+    Downsample to 16 kHz mono 16-bit.
+    Stereo->mono: average channels. Rate conversion: polyphase resampling with
+    an anti-aliasing low-pass filter (scipy.signal.resample_poly), which avoids
+    the aliasing artifacts that plain linear interpolation introduces.
+    """
+    import math
+
+    import numpy as np
+    from scipy.signal import resample_poly
+
     bytes_per_sample = 2
     frame_size = bytes_per_sample * in_channels
     num_samples = len(frames) // frame_size
-    for i in range(num_samples):
-        chunk = frames[i * frame_size : (i + 1) * frame_size]
-        if in_channels == 2:
-            l, r = struct.unpack_from("<hh", chunk)
-            sample = (l + r) // 2
-        else:
-            sample, = struct.unpack_from("<h", chunk)
-        out.append(sample)
-    # Resample with linear interpolation (smoother than nearest-neighbor, better for speech)
+    if num_samples <= 0:
+        return b""
+    usable = num_samples * frame_size
+    samples = np.frombuffer(frames[:usable], dtype="<i2")
+    if in_channels == 2:
+        samples = samples.reshape(-1, 2).astype(np.float32).mean(axis=1)
+    elif in_channels > 2:
+        samples = samples.reshape(-1, in_channels).astype(np.float32).mean(axis=1)
+    else:
+        samples = samples.astype(np.float32)
+
     if in_rate != SAMPLE_RATE:
-        ratio = in_rate / SAMPLE_RATE
-        n_out = int(len(out) * SAMPLE_RATE / in_rate)
-        if n_out <= 0:
-            return b""
-        resampled: list[int] = []
-        for i in range(n_out):
-            src_pos = i * ratio
-            idx = int(src_pos)
-            frac = src_pos - idx
-            if idx >= len(out) - 1:
-                resampled.append(out[-1])
-            else:
-                a, b = out[idx], out[idx + 1]
-                resampled.append(int(a + frac * (b - a)))
-        out = resampled
-    return struct.pack(f"<{len(out)}h", *out)
+        g = math.gcd(in_rate, SAMPLE_RATE)
+        up, down = SAMPLE_RATE // g, in_rate // g
+        samples = resample_poly(samples, up, down)
+
+    out = np.clip(np.round(samples), -32768, 32767).astype("<i2")
+    return out.tobytes()
 
 
 def _has_pyaudiowpatch() -> bool:

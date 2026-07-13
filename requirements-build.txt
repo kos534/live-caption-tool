@@ -1,2 +1,3 @@
 # Install before building the exe: pip install -r requirements-build.txt
 pyinstaller>=6.0.0
+pyinstaller-hooks-contrib>=2024.0

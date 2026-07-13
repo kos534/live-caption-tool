@@ -16,13 +16,13 @@ from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import tkinter as tk
-from tkinter import ttk, font as tkfont, filedialog
+from tkinter import ttk, filedialog
 
 from audio_capture import list_devices
-from area_capture import build_hotkey_string, hotkey_to_tk_bind_sequence, parse_hotkey, run_region_selector, start_hotkey_listener
-from caption_engine import find_model_dir, run_caption_engine
-from config import load_settings, save_settings
+from caption_engine import run_caption_engine
+from config import MODEL_SIZES, load_settings, save_settings
 from overlay import CaptionOverlay
+from whisper_engine import find_local_model_dir
 
 # Unconditional imports so PyInstaller bundles them (used in audio_capture)
 import sounddevice  # noqa: F401
@@ -33,26 +33,7 @@ if sys.platform == "win32":
         pass
 
 
-def _get_screen_cursor_pos(root: tk.Tk) -> tuple[int, int]:
-    """Return current mouse position in screen coordinates (reliable across monitors/DPI)."""
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            class POINT(ctypes.Structure):
-                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-            pt = POINT()
-            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-            return (pt.x, pt.y)
-        except Exception:
-            pass
-    try:
-        return (root.winfo_pointerxy())
-    except Exception:
-        return (0, 0)
-
-
 def main() -> None:
-    model_dir = find_model_dir()
     devices = list_devices()
     if not devices:
         return
@@ -168,7 +149,6 @@ def main() -> None:
             h = max(80, min(600, int(caption_height_var.get())))
             fs = max(8, min(72, int(font_size_var.get())))
             overlay = CaptionOverlay(
-                max_lines=4,
                 font_size=fs,
                 width=w,
                 height=h,
@@ -196,7 +176,7 @@ def main() -> None:
                 overlay_root.after(0, apply_level)
 
         run_caption_engine(
-            model_dir,
+            model_size_var.get(),
             device_index,
             on_partial=on_partial,
             on_final=on_final,
@@ -223,149 +203,212 @@ def main() -> None:
             w = max(200, min(1200, int(caption_width_var.get())))
             h = max(80, min(600, int(caption_height_var.get())))
             fs = max(8, min(72, int(font_size_var.get())))
-            hk = build_hotkey_string(
-                ctrl_hk_var.get(), alt_hk_var.get(), shift_hk_var.get(), win_hk_var.get(),
-                capture_key_var.get().strip() or "q",
-            )
-            tp = tesseract_path_var.get().strip()
-            save_settings({"caption_width": w, "caption_height": h, "font_size": fs, "capture_hotkey": hk, "tesseract_path": tp})
+            save_settings({
+                "caption_width": w,
+                "caption_height": h,
+                "font_size": fs,
+                "model_size": model_size_var.get(),
+            })
             status_var.set("Settings saved.")
-            reregister_hotkey()
         except (ValueError, tk.TclError):
             status_var.set("Please enter valid numbers.")
 
-    def copy_to_os_clipboard(text: str) -> None:
-        """Copy plain text to OS clipboard so user can paste anywhere."""
-        if not text:
-            return
-        if sys.platform == "win32":
-            try:
-                import ctypes
-                CF_UNICODETEXT = 13
-                user32 = ctypes.windll.user32
-                kernel32 = ctypes.windll.kernel32
-                # Prepare data first so we never clear clipboard before we have data ready
-                data = text.encode("utf-16-le")
-                size = len(data) + 2  # +2 for UTF-16 null terminator
-                h = kernel32.GlobalAlloc(0x0042, size)  # GMEM_MOVEABLE | GMEM_ZEROINIT
-                if not h:
-                    raise RuntimeError("GlobalAlloc failed")
-                ptr = kernel32.GlobalLock(h)
-                ctypes.memmove(ptr, data, len(data))
-                kernel32.GlobalUnlock(h)
-                # Use our window handle so we own the clipboard (avoids issues on 2nd+ capture)
-                hwnd = int(root.winfo_id())
-                for _ in range(5):
-                    if user32.OpenClipboard(hwnd):
-                        try:
-                            user32.EmptyClipboard()
-                            if user32.SetClipboardData(CF_UNICODETEXT, h):
-                                return
-                        finally:
-                            user32.CloseClipboard()
-                    time.sleep(0.05)
-                # If we couldn't set, don't leave h leaked (clipboard not changed)
-                kernel32.GlobalFree(h)
-            except Exception:
-                pass
-        try:
-            root.clipboard_clear()
-            root.clipboard_append(text)
-            root.update()
-        except tk.TclError:
-            pass
-
-    def on_area_capture_done(text: str | None, error: str | None = None) -> None:
-        # Don't bring main window to front when capture finishes
-        if error:
-            status_var.set(f"Capture failed: {error}")
-            return
-        if text is None:
-            status_var.set("Area capture cancelled or OCR unavailable.")
-            return
-        if not text.strip():
-            status_var.set("No text detected in selected area.")
-            return
-        copy_to_os_clipboard(text)
-        status_var.set("Area text captured and copied to clipboard.")
-
-    _last_area_selector_time = [0.0]
-    DEBOUNCE_SEC = 0.5
-
-    def start_area_selector() -> None:
-        now = time.monotonic()
-        if now - _last_area_selector_time[0] < DEBOUNCE_SEC:
-            return
-        _last_area_selector_time[0] = now
-        # Mouse position at hotkey press = start of selection (screen coords)
-        px, py = _get_screen_cursor_pos(root)
-        # Don't show or focus main window — only the region selector overlay appears
-        root.after(80, lambda: run_region_selector(root, _after_capture, start_xy=(px, py)))
-
-    def _after_capture(text: str | None, error: str | None = None) -> None:
-        root.attributes("-topmost", False)
-        on_area_capture_done(text, error)
+    # ---- Color palette: modern dark theme, blue accent ----
+    BG = "#14161b"
+    SURFACE = "#1b1e25"
+    SURFACE_ALT = "#232730"
+    BORDER = "#2b2f3a"
+    TEXT = "#eceef1"
+    TEXT_MUTED = "#8b93a3"
+    ACCENT = "#3b82f6"
+    ACCENT_HOVER = "#2f6fe0"
+    ACCENT_ACTIVE = "#2563eb"
+    DANGER = "#ef4444"
+    DANGER_HOVER = "#e13636"
+    DANGER_ACTIVE = "#dc2626"
+    SUCCESS = "#22c55e"
 
     root = tk.Tk()
     root.title("Live Caption")
-    root.geometry("640x850")
-    root.minsize(640, 850)
-    root.maxsize(640, 850)
+    root.geometry("640x800")
+    root.minsize(640, 800)
+    root.maxsize(640, 800)
     root.resizable(True, True)
     try:
-        root.configure(bg="#f0f2f5")
+        root.configure(bg=BG)
     except tk.TclError:
         pass
 
-    # Theme: clean, spacious layout
+    # Theme: 'clam' is the only built-in ttk theme that fully honors custom
+    # colors on Windows (native themes like 'vista' mostly ignore ttk.Style
+    # and render with the OS theme engine), so it's required for real dark mode.
     style = ttk.Style()
     try:
-        style.theme_use("vista" if sys.platform == "win32" else "default")
+        style.theme_use("clam")
     except tk.TclError:
         pass
-    toggle_btn_style: str | None = None
-    try:
-        style.configure("Primary.TButton", font=("Segoe UI", 11, "bold"), padding=(28, 14))
+
+    def _safe_configure(name: str, **kw: object) -> None:
         try:
-            style.map("Primary.TButton", background=[("active", "#2563eb")])
+            style.configure(name, **kw)
         except tk.TclError:
             pass
-        toggle_btn_style = "Primary.TButton"
-    except tk.TclError:
-        pass
-    try:
-        style.configure("TLabel", font=("Segoe UI", 10))
-        style.configure("TLabelframe", font=("Segoe UI", 10, "bold"))
-        style.configure("TLabelframe.Label", font=("Segoe UI", 10, "bold"))
-        style.configure("TFrame", background=root.cget("bg") if hasattr(root, "cget") else "#f0f2f5")
-    except tk.TclError:
-        pass
+
+    def _safe_map(name: str, **kw: object) -> None:
+        try:
+            style.map(name, **kw)
+        except tk.TclError:
+            pass
+
+    BODY_FONT = ("Segoe UI", 10)
+    MUTED_FONT = ("Segoe UI", 9)
+    SECTION_FONT = ("Segoe UI", 10, "bold")
+
+    _safe_configure("TFrame", background=BG)
+    # Most labels live inside a LabelFrame (SURFACE background); the header and
+    # status bar sit directly on the window background instead (BG variants below).
+    _safe_configure("TLabel", background=SURFACE, foreground=TEXT, font=BODY_FONT)
+    _safe_configure("Muted.TLabel", background=SURFACE, foreground=TEXT_MUTED, font=MUTED_FONT)
+    _safe_configure("Header.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 19, "bold"))
+    _safe_configure("HeaderMuted.TLabel", background=BG, foreground=TEXT_MUTED, font=MUTED_FONT)
+    _safe_configure("StatusMuted.TLabel", background=BG, foreground=TEXT_MUTED, font=MUTED_FONT)
+    _safe_configure(
+        "TLabelframe",
+        background=SURFACE,
+        bordercolor=BORDER,
+        darkcolor=SURFACE,
+        lightcolor=SURFACE,
+        borderwidth=1,
+        relief=tk.SOLID,
+    )
+    _safe_configure("TLabelframe.Label", background=SURFACE, foreground=TEXT, font=SECTION_FONT, padding=(4, 2))
+    _safe_configure("TSeparator", background=BORDER)
+
+    _safe_configure(
+        "TButton",
+        background=SURFACE_ALT,
+        foreground=TEXT,
+        bordercolor=BORDER,
+        lightcolor=SURFACE_ALT,
+        darkcolor=SURFACE_ALT,
+        borderwidth=1,
+        focusthickness=0,
+        focuscolor=SURFACE_ALT,
+        padding=(12, 8),
+        font=BODY_FONT,
+    )
+    _safe_map(
+        "TButton",
+        background=[("active", BORDER), ("pressed", BORDER)],
+        bordercolor=[("focus", ACCENT)],
+    )
+
+    _safe_configure(
+        "Accent.TButton",
+        background=ACCENT,
+        foreground="#ffffff",
+        bordercolor=ACCENT,
+        lightcolor=ACCENT,
+        darkcolor=ACCENT,
+        borderwidth=0,
+        focusthickness=0,
+        focuscolor=ACCENT,
+        padding=(28, 14),
+        font=("Segoe UI", 11, "bold"),
+    )
+    _safe_map(
+        "Accent.TButton",
+        background=[("active", ACCENT_HOVER), ("pressed", ACCENT_ACTIVE)],
+    )
+
+    _safe_configure(
+        "Danger.TButton",
+        background=DANGER,
+        foreground="#ffffff",
+        bordercolor=DANGER,
+        lightcolor=DANGER,
+        darkcolor=DANGER,
+        borderwidth=0,
+        focusthickness=0,
+        focuscolor=DANGER,
+        padding=(28, 14),
+        font=("Segoe UI", 11, "bold"),
+    )
+    _safe_map(
+        "Danger.TButton",
+        background=[("active", DANGER_HOVER), ("pressed", DANGER_ACTIVE)],
+    )
+
+    _safe_configure(
+        "TCombobox",
+        fieldbackground=SURFACE_ALT,
+        background=SURFACE_ALT,
+        foreground=TEXT,
+        bordercolor=BORDER,
+        lightcolor=SURFACE_ALT,
+        darkcolor=SURFACE_ALT,
+        arrowcolor=TEXT_MUTED,
+        borderwidth=1,
+        padding=(8, 6),
+        font=BODY_FONT,
+    )
+    _safe_map(
+        "TCombobox",
+        fieldbackground=[("readonly", SURFACE_ALT)],
+        foreground=[("readonly", TEXT)],
+        bordercolor=[("focus", ACCENT)],
+        arrowcolor=[("active", ACCENT)],
+    )
+    _safe_configure(
+        "TSpinbox",
+        fieldbackground=SURFACE_ALT,
+        background=SURFACE_ALT,
+        foreground=TEXT,
+        bordercolor=BORDER,
+        lightcolor=SURFACE_ALT,
+        darkcolor=SURFACE_ALT,
+        arrowcolor=TEXT_MUTED,
+        borderwidth=1,
+        padding=(8, 6),
+        font=BODY_FONT,
+    )
+    _safe_map("TSpinbox", bordercolor=[("focus", ACCENT)])
+
+    # Combobox/Listbox popdowns and plain tk widgets aren't ttk elements, so
+    # they need direct color options to match the dark theme.
+    root.option_add("*TCombobox*Listbox.background", SURFACE_ALT)
+    root.option_add("*TCombobox*Listbox.foreground", TEXT)
+    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+    root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
     root.option_add("*Font", ("Segoe UI", 10))
 
     main = ttk.Frame(root, padding=(24, 20))
     main.pack(fill=tk.BOTH, expand=True)
 
-    # Header
+    # Header: thin accent bar + logo mark for a bit of visual identity
+    accent_bar = tk.Frame(root, bg=ACCENT, height=3)
+    accent_bar.pack(side=tk.TOP, fill=tk.X)
+
     header = ttk.Frame(main)
-    header.pack(fill=tk.X, pady=(0, 20))
-    ttk.Label(header, text="Live Caption", font=("Segoe UI", 18, "bold")).pack(anchor=tk.W)
-    ttk.Label(header, text="Real-time captions from call audio · Close to tray", font=("Segoe UI", 9), foreground="gray").pack(anchor=tk.W)
+    header.pack(fill=tk.X, pady=(0, 22))
+    header_row = ttk.Frame(header)
+    header_row.pack(fill=tk.X, anchor=tk.W)
+    logo_mark = tk.Canvas(header_row, width=28, height=28, highlightthickness=0, bd=0, bg=BG)
+    logo_mark.pack(side=tk.LEFT, padx=(0, 10))
+    logo_mark.create_rectangle(0, 0, 28, 28, fill=ACCENT, outline="")
+    logo_mark.create_text(14, 15, text="LC", fill="#ffffff", font=("Segoe UI", 9, "bold"))
+    title_col = ttk.Frame(header_row)
+    title_col.pack(side=tk.LEFT, fill=tk.X)
+    ttk.Label(title_col, text="Live Caption", style="Header.TLabel").pack(anchor=tk.W)
+    ttk.Label(title_col, text="Real-time captions from call audio · Close to tray", style="HeaderMuted.TLabel").pack(anchor=tk.W)
 
     # Need these for on_start/on_stop; create vars early for status_var
-    status_var = tk.StringVar(value="Choose an audio source and click Start.")
+    status_var = tk.StringVar(value="")
     device_var = tk.StringVar(value=devices[0].name if devices else "")
     caption_width_var = tk.StringVar(value=str(settings["caption_width"]))
     caption_height_var = tk.StringVar(value=str(settings["caption_height"]))
     font_size_var = tk.StringVar(value=str(settings["font_size"]))
-    # Hotkey: modifiers (checkboxes) + single key (must come from saved config)
-    _hotkey_str = (settings.get("capture_hotkey") or "").strip() or "Ctrl+Q"
-    _hc, _ha, _hs, _hw, _hk = parse_hotkey(_hotkey_str)
-    ctrl_hk_var = tk.BooleanVar(value=_hc)
-    alt_hk_var = tk.BooleanVar(value=_ha)
-    shift_hk_var = tk.BooleanVar(value=_hs)
-    win_hk_var = tk.BooleanVar(value=_hw)
-    capture_key_var = tk.StringVar(value=_hk.upper() if len(_hk) <= 1 else (_hk[0].upper() + _hk[1:].lower()))
-    tesseract_path_var = tk.StringVar(value=settings.get("tesseract_path", ""))
+    model_size_var = tk.StringVar(value=settings.get("model_size", MODEL_SIZES[2]))
 
     def on_toggle() -> None:
         nonlocal is_captioning
@@ -377,7 +420,8 @@ def main() -> None:
             if dev:
                 start_level_monitor(dev.index, dev.is_loopback)
             is_captioning = False
-            toggle_btn.configure(text="Start")
+            toggle_btn.configure(text="Start", style="Accent.TButton")
+            _set_status_dot(False)
             status_var.set("Stopped.")
         else:
             name = device_var.get()
@@ -388,17 +432,18 @@ def main() -> None:
                 w = max(200, min(1200, int(caption_width_var.get())))
                 h = max(80, min(600, int(caption_height_var.get())))
                 fs = max(8, min(72, int(font_size_var.get())))
-                hk = build_hotkey_string(
-                    ctrl_hk_var.get(), alt_hk_var.get(), shift_hk_var.get(), win_hk_var.get(),
-                    capture_key_var.get().strip() or "q",
-                )
-                tp = (tesseract_path_var.get() or "").strip()
-                save_settings({"caption_width": w, "caption_height": h, "font_size": fs, "capture_hotkey": hk, "tesseract_path": tp})
+                save_settings({
+                    "caption_width": w,
+                    "caption_height": h,
+                    "font_size": fs,
+                    "model_size": model_size_var.get(),
+                })
                 # Stop background meter and let caption engine drive the level updates
                 stop_level_monitor()
                 start_captioning(dev.index, dev.is_loopback)
                 is_captioning = True
-                toggle_btn.configure(text="Stop")
+                toggle_btn.configure(text="Stop", style="Danger.TButton")
+                _set_status_dot(True)
                 status_var.set("Capturing. Drag caption window to move.")
             except FileNotFoundError as e:
                 status_var.set(str(e))
@@ -410,23 +455,23 @@ def main() -> None:
     top_row.pack(fill=tk.X, pady=(0, 20))
     top_row.columnconfigure(0, weight=1, minsize=220)
     top_row.columnconfigure(1, weight=1, minsize=180)
-    audio_frame = ttk.LabelFrame(top_row, text="  Audio source  ", padding=(16, 14))
+    audio_frame = ttk.LabelFrame(top_row, text="Audio source", padding=(16, 14))
     audio_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 10))
-    ttk.Label(audio_frame, text="Capture from").pack(anchor=tk.W)
+    ttk.Label(audio_frame, text="Capture from", style="Muted.TLabel").pack(anchor=tk.W)
     combo = ttk.Combobox(audio_frame, textvariable=device_var, height=6, state="readonly", font=("Segoe UI", 10))
     combo["values"] = [d.name for d in devices]
     combo.pack(fill=tk.X, pady=(8, 4))
     # Horizontal audio level meter under device list
-    meter_container = tk.Frame(audio_frame, bg=root.cget("bg"))
+    meter_container = tk.Frame(audio_frame, bg=SURFACE)
     meter_container.pack(fill=tk.X, pady=(2, 0))
-    meter_label = ttk.Label(meter_container, text="Input level", font=("Segoe UI", 9))
+    meter_label = ttk.Label(meter_container, text="Input level", style="Muted.TLabel")
     meter_label.pack(anchor=tk.W)
     audio_meter_canvas = tk.Canvas(
         meter_container,
         height=8,
         highlightthickness=0,
         bd=0,
-        bg=root.cget("bg"),
+        bg=SURFACE_ALT,
     )
     audio_meter_canvas.pack(fill=tk.X, pady=(2, 0))
     audio_meter_rect = audio_meter_canvas.create_rectangle(
@@ -435,7 +480,7 @@ def main() -> None:
         0,
         8,
         width=0,
-        fill="#22c55e",
+        fill=SUCCESS,
     )
 
     def _on_device_change(_event: tk.Event | None = None) -> None:
@@ -446,16 +491,32 @@ def main() -> None:
             start_level_monitor(dev.index, dev.is_loopback)
 
     combo.bind("<<ComboboxSelected>>", _on_device_change)
-    ctrl_frame = ttk.LabelFrame(top_row, text="  Captioning  ", padding=(16, 14))
+    ctrl_frame = ttk.LabelFrame(top_row, text="Captioning", padding=(16, 14))
     ctrl_frame.grid(row=0, column=1, sticky=tk.NSEW, padx=(10, 0))
-    toggle_btn = ttk.Button(ctrl_frame, text="Start", command=on_toggle)
-    if toggle_btn_style:
-        toggle_btn.configure(style=toggle_btn_style)
+    toggle_btn = ttk.Button(ctrl_frame, text="Start", command=on_toggle, style="Accent.TButton")
     toggle_btn.pack(fill=tk.X, pady=(0, 8))
-    ttk.Label(ctrl_frame, text="Start to capture; click Stop when done.", font=("Segoe UI", 9), foreground="gray").pack(anchor=tk.W)
+    ttk.Label(ctrl_frame, text="Model size", style="Muted.TLabel").pack(anchor=tk.W)
+    model_combo = ttk.Combobox(
+        ctrl_frame, textvariable=model_size_var, values=list(MODEL_SIZES), state="readonly", font=("Segoe UI", 10)
+    )
+    model_combo.pack(fill=tk.X, pady=(4, 4))
+
+    def _model_status_text(model_size: str) -> str:
+        if find_local_model_dir(model_size) is not None:
+            return f"Model '{model_size}' ready."
+        return f"Model '{model_size}' will download on first use (~150–500MB)."
+
+    model_status_var = tk.StringVar(value=_model_status_text(model_size_var.get()))
+    ttk.Label(ctrl_frame, textvariable=model_status_var, style="Muted.TLabel", wraplength=220).pack(anchor=tk.W)
+
+    def _on_model_change(_event: tk.Event | None = None) -> None:
+        model_status_var.set(_model_status_text(model_size_var.get()))
+        save_settings({"model_size": model_size_var.get()})
+
+    model_combo.bind("<<ComboboxSelected>>", _on_model_change)
 
     # ---- Section: Caption window ----
-    opts_frame = ttk.LabelFrame(main, text="  Caption window  ", padding=(16, 14))
+    opts_frame = ttk.LabelFrame(main, text="Caption window", padding=(16, 14))
     opts_frame.pack(fill=tk.X, pady=(0, 18))
     grid = ttk.Frame(opts_frame)
     grid.pack(fill=tk.X)
@@ -470,135 +531,6 @@ def main() -> None:
     ttk.Label(grid, text="Font size", width=10, anchor=tk.W).grid(row=0, column=4, **label_opts)
     ttk.Spinbox(grid, from_=8, to=72, width=8, textvariable=font_size_var).grid(row=0, column=5, **field_opts)
     ttk.Button(grid, text="Save defaults", command=apply_settings).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(14, 0))
-
-    # ---- Section: Capture area hotkey ----
-    hotkey_frame = ttk.LabelFrame(main, text="  Capture area hotkey  ", padding=(16, 14))
-    hotkey_frame.pack(fill=tk.X, pady=(0, 18))
-    hotkey_frame.columnconfigure(0, weight=1)
-    hk_row = ttk.Frame(hotkey_frame)
-    hk_row.pack(fill=tk.X, expand=True)
-    hk_row.columnconfigure(1, weight=1)
-    ttk.Label(hk_row, text="Modifiers", width=10, anchor=tk.W).grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=4)
-    mod_frame = ttk.Frame(hk_row)
-    mod_frame.grid(row=0, column=1, sticky=tk.W, pady=4)
-    ttk.Checkbutton(mod_frame, text="Ctrl", variable=ctrl_hk_var).pack(side=tk.LEFT, padx=(0, 12))
-    ttk.Checkbutton(mod_frame, text="Alt", variable=alt_hk_var).pack(side=tk.LEFT, padx=(0, 12))
-    ttk.Checkbutton(mod_frame, text="Shift", variable=shift_hk_var).pack(side=tk.LEFT, padx=(0, 12))
-    ttk.Checkbutton(mod_frame, text="Win", variable=win_hk_var).pack(side=tk.LEFT)
-    ttk.Label(hk_row, text="Key", width=10, anchor=tk.W).grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=4)
-    key_btn_frame = ttk.Frame(hk_row)
-    key_btn_frame.grid(row=1, column=1, sticky=tk.W, pady=4)
-    key_display_btn = ttk.Button(key_btn_frame, width=5, command=lambda: None)
-    key_display_btn.pack(side=tk.LEFT, padx=(0, 8))
-
-    def update_key_btn_text() -> None:
-        key_display_btn.configure(text=capture_key_var.get() or "?")
-
-    def ask_for_key() -> None:
-        popup = tk.Toplevel(root)
-        popup.title("Set hotkey key")
-        popup.attributes("-topmost", True)
-        popup.geometry("280x80")
-        ttk.Label(popup, text="Press the key to use (one letter, number, or F1–F12):").pack(pady=(12, 6), padx=12)
-        skip_keys = {"Control_L", "Control_R", "Shift_L", "Shift_R", "Alt_L", "Alt_R", "Win_L", "Win_R", "Super_L", "Super_R"}
-
-        def on_key(event: tk.Event) -> None:
-            if event.keysym in skip_keys:
-                return
-            k = event.keysym
-            if len(k) == 1:
-                capture_key_var.set(k.upper())
-            else:
-                capture_key_var.set(k.upper() if len(k) <= 2 else (k[0].upper() + k[1:].lower()))
-            update_key_btn_text()
-            try:
-                hk = build_hotkey_string(
-                    ctrl_hk_var.get(), alt_hk_var.get(), shift_hk_var.get(), win_hk_var.get(),
-                    capture_key_var.get().strip() or "q",
-                )
-                w = max(200, min(1200, int(caption_width_var.get())))
-                h = max(80, min(600, int(caption_height_var.get())))
-                fs = max(8, min(72, int(font_size_var.get())))
-                save_settings({"caption_width": w, "caption_height": h, "font_size": fs, "capture_hotkey": hk, "tesseract_path": (tesseract_path_var.get() or "").strip()})
-                reregister_hotkey()
-            except (ValueError, tk.TclError):
-                pass
-            popup.destroy()
-
-        popup.bind("<KeyPress>", on_key)
-        popup.focus_set()
-        popup.grab_set()
-
-    key_display_btn.configure(command=ask_for_key)
-    update_key_btn_text()
-    ttk.Label(hk_row, text="Tesseract path", width=10, anchor=tk.W).grid(row=2, column=0, sticky=tk.W, padx=(0, 10), pady=4)
-
-    def tesseract_btn_text() -> str:
-        p = (tesseract_path_var.get() or "").strip()
-        if not p:
-            return "Set Tesseract path..."
-        if len(p) > 45:
-            return p[:22] + "..." + p[-20:]
-        return p
-
-    def ask_tesseract_path() -> None:
-        popup = tk.Toplevel(root)
-        popup.title("Tesseract path")
-        popup.attributes("-topmost", True)
-        popup.geometry("540x120")
-        popup.minsize(540, 120)
-        popup.maxsize(540, 120)
-        popup.resizable(True, False)
-        popup.transient(root)
-        ttk.Label(popup, text="Path to tesseract.exe (optional; leave empty to use PATH):").pack(anchor=tk.W, padx=14, pady=(14, 6))
-        entry_frame = ttk.Frame(popup)
-        entry_frame.pack(fill=tk.X, padx=14, pady=(0, 12))
-        path_entry = ttk.Entry(entry_frame, width=58)
-        path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-        current = tesseract_path_var.get() or ""
-        path_entry.insert(0, current)
-        if current:
-            path_entry.select_range(0, tk.END)
-        path_entry.focus_set()
-
-        def browse() -> None:
-            p = filedialog.askopenfilename(
-                title="Select tesseract.exe",
-                filetypes=[("Executable", "tesseract.exe"), ("All files", "*.*")],
-                parent=popup,
-            )
-            if p:
-                path_entry.delete(0, tk.END)
-                path_entry.insert(0, p)
-
-        def ok() -> None:
-            tesseract_path_var.set(path_entry.get().strip())
-            tesseract_btn.configure(text=tesseract_btn_text())
-            try:
-                w = max(200, min(1200, int(caption_width_var.get())))
-                h = max(80, min(600, int(caption_height_var.get())))
-                fs = max(8, min(72, int(font_size_var.get())))
-                hk = build_hotkey_string(
-                    ctrl_hk_var.get(), alt_hk_var.get(), shift_hk_var.get(), win_hk_var.get(),
-                    capture_key_var.get().strip() or "q",
-                )
-                save_settings({"caption_width": w, "caption_height": h, "font_size": fs, "capture_hotkey": hk, "tesseract_path": tesseract_path_var.get().strip()})
-            except (ValueError, tk.TclError):
-                pass
-            popup.destroy()
-
-        ttk.Button(entry_frame, text="Browse...", command=browse).pack(side=tk.LEFT)
-        btn_frame = ttk.Frame(popup)
-        btn_frame.pack(pady=(4, 16))
-        ttk.Button(btn_frame, text="OK", command=ok).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Cancel", command=popup.destroy).pack(side=tk.LEFT)
-        popup.bind("<Return>", lambda e: ok())
-        popup.bind("<Escape>", lambda e: popup.destroy())
-
-    tesseract_btn = ttk.Button(hk_row, text=tesseract_btn_text(), command=ask_tesseract_path)
-    tesseract_btn.grid(row=2, column=1, sticky=tk.EW, pady=4)
-    ttk.Label(hk_row, text="Optional: set path to tesseract.exe if not on PATH.", font=("Segoe UI", 9), foreground="gray", wraplength=520).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
-    ttk.Label(hk_row, text="Hotkey not working? Right-click app → Run as administrator.", font=("Segoe UI", 9), foreground="gray", wraplength=520).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
 
     # ---- Programs to start with Live Caption ----
     launch_list: list[str] = list(settings.get("launch_on_start") or [])
@@ -663,12 +595,24 @@ def main() -> None:
             except Exception:
                 pass
 
-    launch_frame = ttk.LabelFrame(main, text="  Start with Live Caption  ", padding=(16, 14))
+    launch_frame = ttk.LabelFrame(main, text="Start with Live Caption", padding=(16, 14))
     launch_frame.pack(fill=tk.X, pady=(0, 18))
     launch_frame.columnconfigure(0, weight=1)
     launch_inner = ttk.Frame(launch_frame)
     launch_inner.pack(fill=tk.X)
-    launch_listbox = tk.Listbox(launch_inner, height=3, selectmode=tk.EXTENDED, font=("Segoe UI", 10), relief=tk.FLAT, highlightthickness=0, borderwidth=1)
+    launch_listbox = tk.Listbox(
+        launch_inner,
+        height=3,
+        selectmode=tk.EXTENDED,
+        font=("Segoe UI", 10),
+        relief=tk.FLAT,
+        highlightthickness=0,
+        borderwidth=0,
+        bg=SURFACE_ALT,
+        fg=TEXT,
+        selectbackground=ACCENT,
+        selectforeground="#ffffff",
+    )
     launch_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=(0, 8))
     launch_btns = ttk.Frame(launch_inner)
     launch_btns.pack(side=tk.RIGHT, padx=(12, 0))
@@ -676,20 +620,21 @@ def main() -> None:
     ttk.Button(launch_btns, text="Add...", command=add_launch_program).pack(fill=tk.X, pady=3)
     ttk.Button(launch_btns, text="Remove", command=remove_launch_program).pack(fill=tk.X, pady=3)
     refresh_launch_listbox()
-    ttk.Label(launch_frame, text="Click Start to run the programs in the list (.exe, .bat).", font=("Segoe UI", 9), foreground="gray", wraplength=520).pack(anchor=tk.W)
+    ttk.Label(launch_frame, text="Click Start to run the programs in the list (.exe, .bat).", style="Muted.TLabel", wraplength=520).pack(anchor=tk.W)
 
     # ---- Status bar ----
     ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(16, 12))
     status_frame = ttk.Frame(main)
     status_frame.pack(fill=tk.X)
-    status_lbl = ttk.Label(status_frame, textvariable=status_var, font=("Segoe UI", 9), foreground="gray", wraplength=560)
-    status_lbl.pack(anchor=tk.W)
+    status_dot = tk.Canvas(status_frame, width=8, height=8, highlightthickness=0, bd=0, bg=BG)
+    status_dot.pack(side=tk.LEFT, padx=(0, 8))
+    status_dot_id = status_dot.create_oval(0, 0, 8, 8, fill=TEXT_MUTED, outline="")
 
-    # ---- Model warning ----
-    if not model_dir:
-        ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(12, 10))
-        warn = ttk.Label(main, text="Vosk model not found. Add a model to the 'models' folder.", font=("Segoe UI", 9), foreground="#b45309", wraplength=560)
-        warn.pack(anchor=tk.W)
+    def _set_status_dot(active: bool) -> None:
+        status_dot.itemconfig(status_dot_id, fill=SUCCESS if active else TEXT_MUTED)
+
+    status_lbl = ttk.Label(status_frame, textvariable=status_var, style="StatusMuted.TLabel", wraplength=540)
+    status_lbl.pack(side=tk.LEFT, anchor=tk.W)
 
     # ---- System tray: close (X) hides to tray; restore via tray icon ----
     tray_cmd_queue: queue.Queue[str] = queue.Queue()
@@ -744,95 +689,6 @@ def main() -> None:
             root.protocol("WM_DELETE_WINDOW", lambda: (stop_captioning(), root.destroy()))
     else:
         root.protocol("WM_DELETE_WINDOW", lambda: (stop_captioning(), root.destroy()))
-
-    # Capture hotkey: register once, then re-register when user changes it
-    hotkey_registered = [False]
-    hotkey_stop: list[Callable[[], None] | None] = [None]
-    hotkey_tk_seq: list[str | None] = [None]
-    hotkey_queue: list[queue.Queue[int] | None] = [None]
-
-    def poll_hotkey_queue() -> None:
-        q = hotkey_queue[0]
-        if q is None:
-            return
-        try:
-            while True:
-                q.get_nowait()
-                start_area_selector()
-        except queue.Empty:
-            pass
-        root.after(50, poll_hotkey_queue)
-
-    def do_register_hotkey() -> None:
-        """Register or re-register the capture hotkey from current UI state."""
-        if hotkey_stop[0] is not None:
-            try:
-                hotkey_stop[0]()
-            except Exception:
-                pass
-            hotkey_stop[0] = None
-        old_seq = hotkey_tk_seq[0]
-        if old_seq:
-            try:
-                root.unbind(old_seq)
-                root.unbind_all(old_seq)
-            except tk.TclError:
-                pass
-            hotkey_tk_seq[0] = None
-        hk = build_hotkey_string(
-            ctrl_hk_var.get(), alt_hk_var.get(), shift_hk_var.get(), win_hk_var.get(),
-            capture_key_var.get().strip().lower() or "q",
-        )
-        trigger_q: queue.Queue[int] = queue.Queue()
-        hotkey_queue[0] = trigger_q
-        # All backends put into queue so capture works when window is in tray (main thread polls)
-        def hotkey_trigger() -> None:
-            try:
-                trigger_q.put_nowait(1)
-            except Exception:
-                pass
-        try:
-            tk_seq = hotkey_to_tk_bind_sequence(hk)
-            root.bind(tk_seq, lambda e: hotkey_trigger())
-            root.bind_all(tk_seq, lambda e: hotkey_trigger())
-            hotkey_tk_seq[0] = tk_seq
-        except tk.TclError:
-            pass
-        ok, method, stop_fn = start_hotkey_listener(hk, hotkey_trigger, trigger_queue=trigger_q)
-        hotkey_stop[0] = stop_fn
-        if ok:
-            root.after(50, poll_hotkey_queue)
-            if method == "win_hook":
-                status_var.set(f"Capture hotkey: {hk} (works in all apps and from tray).")
-            else:
-                status_var.set(f"Capture hotkey: {hk} (works from tray; {method}).")
-        else:
-            status_var.set(f"Capture hotkey: {hk} (window only). Run as administrator for other apps.")
-
-    def register_hotkey_once(_event: tk.Event | None = None) -> None:
-        if hotkey_registered[0]:
-            return
-        hotkey_registered[0] = True
-        try:
-            root.unbind("<Map>", hotkey_bind_id)
-        except tk.TclError:
-            pass
-        do_register_hotkey()
-
-    def reregister_hotkey() -> None:
-        """Re-register hotkey with current UI state (so change takes effect immediately)."""
-        if hotkey_registered[0]:
-            do_register_hotkey()
-
-    # Re-register when modifier checkboxes change (Ctrl, Alt, Shift, Win)
-    def _on_modifier_change(*args: object) -> None:
-        reregister_hotkey()
-
-    for var in (ctrl_hk_var, alt_hk_var, shift_hk_var, win_hk_var):
-        var.trace_add("write", _on_modifier_change)
-
-    hotkey_bind_id = root.bind("<Map>", register_hotkey_once)
-    root.after(500, register_hotkey_once)
 
     # Start initial level monitor for default selected device
     try:

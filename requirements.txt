@@ -2,3 +2,7 @@ PyAudioWPatch>=0.2.12.7
 faster-whisper>=1.0.3
 numpy>=1.26
 scipy>=1.11
+# CUDA 12 runtime libraries for GPU inference (CTranslate2 4.5+ needs cuBLAS 12 + cuDNN 9).
+# Harmless on machines without an NVIDIA GPU: the app falls back to CPU.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10

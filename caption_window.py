@@ -3,6 +3,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
+from tkinter import filedialog
 
 APP_NAME = "Wonuva Live Caption"
 PARAGRAPH_GAP_S = 6.0  # start a new paragraph when captions resume after a pause this long
@@ -124,6 +125,8 @@ class CaptionWindow:
         self._on_close_callback = None
         self._on_share_toggle = None
         self._share_hidden = False
+        self._flash_job = None
+        self._status_before_flash = ""
         self._status = ""
         self._images = {}
         self._sparkle_ids = []
@@ -323,6 +326,7 @@ class CaptionWindow:
         self.buttons = []
         for name, label, font, hover, action in (
             ("close", "✕", self.icon_font, CLOSE_HOVER, self._handle_close),
+            ("save", "Save", self.button_font, HOVER, self.save_transcript),
             ("copy", "Copy", self.button_font, HOVER, self.copy_to_clipboard),
             ("clear", "Clear", self.button_font, HOVER, self.clear_text),
             ("settings", "⚙", self.icon_font, HOVER, self._toggle_settings),
@@ -563,6 +567,47 @@ class CaptionWindow:
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
 
+    def save_transcript(self):
+        """Save the whole transcript as a UTF-8 .txt file, chosen in a standard Save dialog."""
+        content = self.text.get("1.0", "end-1c").strip()
+        if not content:
+            self._flash_status("Nothing to save yet")
+            return
+        documents = Path.home() / "Documents"
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Save transcript",
+            initialdir=str(documents if documents.is_dir() else Path.home()),
+            initialfile=time.strftime("Wonuva Caption %Y-%m-%d %H%M.txt"),
+            defaultextension=".txt",
+            filetypes=[("Text file", "*.txt"), ("All files", "*.*")],
+        )
+        if not path:
+            return  # dialog cancelled
+        try:
+            # utf-8-sig so Notepad and other Windows apps detect the encoding reliably.
+            Path(path).write_text(content + "\n", encoding="utf-8-sig")
+        except OSError as exc:
+            self._flash_status(f"Couldn't save: {exc.strerror or exc}")
+            return
+        self._flash_status(f"Saved {Path(path).name}")
+
+    def _flash_status(self, message: str, ms: int = 4000):
+        """Show a short message in the title strip, then put the previous status back."""
+        if self._flash_job is None:
+            self._status_before_flash = self._status
+        else:
+            self.root.after_cancel(self._flash_job)
+        self._status = message
+        self._layout_title(self.title_bar.winfo_width())
+
+        def restore():
+            self._flash_job = None
+            self._status = self._status_before_flash
+            self._layout_title(self.title_bar.winfo_width())
+
+        self._flash_job = self.root.after(ms, restore)
+
     def clear_text(self):
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
@@ -625,8 +670,11 @@ class CaptionWindow:
         self._replace_partial(line.strip(), ("partial",))
 
     def set_status(self, message: str):
-        self._status = message
-        self._layout_title(self.title_bar.winfo_width())
+        if self._flash_job is not None:
+            self._status_before_flash = message  # shown once the short message ends
+        else:
+            self._status = message
+            self._layout_title(self.title_bar.winfo_width())
         if "error" in message.lower() or "failed" in message.lower():
             self.append_final(f"[{message}]")
 

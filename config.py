@@ -1,7 +1,10 @@
 import sys
 from pathlib import Path
 
-APP_VERSION = "1.0.0"  # shown in the title strip and written to the log
+APP_VERSION = "1.1.0"  # shown in the title strip and written to the log
+
+# Start with the caption window hidden from screen sharing/recording (toggle in the ⚙ panel).
+HIDE_FROM_SCREEN_SHARE = False
 
 TARGET_SAMPLE_RATE = 16000  # what the Whisper models expect; captured audio is resampled to this
 FRAME_MS = 30

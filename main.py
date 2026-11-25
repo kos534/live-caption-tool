@@ -5,6 +5,15 @@ import threading
 
 import config
 import gpu
+import single_instance
+
+# Only one copy at a time: a second launch brings the running window to the front and exits.
+# Checked before logging is set up, so a second launch doesn't overwrite the running copy's log.
+if not single_instance.acquire():
+    from caption_window import APP_NAME  # the running window's title
+
+    single_instance.focus_existing(APP_NAME)
+    sys.exit(0)
 
 # The exe has no console, so log to a file next to it (overwritten each launch).
 logging.basicConfig(
@@ -24,6 +33,7 @@ gpu.register_cuda_dlls()  # must run before faster-whisper/CTranslate2 load any 
 from audio_capture import LoopbackCapture
 from caption_window import CaptionWindow
 from transcriber import Transcriber
+from screen_share_hide import set_screen_share_hidden
 
 
 def main():
@@ -83,6 +93,12 @@ def main():
     )
 
     transcriber.start()
+
+    # Hide the window from screen share NOW that it's initialized (if enabled); the ⚙ panel's
+    # "Hide from screen share" switch turns it on/off while the app runs.
+    hidden = config.HIDE_FROM_SCREEN_SHARE and set_screen_share_hidden(window, True)
+    window.set_on_screen_share_toggle(lambda on: set_screen_share_hidden(window, on), hidden)
+
     window.poll_queue(text_queue)
     window.run()
 

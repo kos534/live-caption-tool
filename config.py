@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-APP_VERSION = "1.1.0"  # shown in the title strip and written to the log
+APP_VERSION = "2.0.0"  # shown in the title strip and written to the log
 
 # Start with the caption window hidden from screen sharing/recording (toggle in the ⚙ panel).
 HIDE_FROM_SCREEN_SHARE = False
@@ -55,10 +55,28 @@ PARTIAL_INTERVAL_S = {"cuda": 0.5, "cpu": 1.0}
 PARTIAL_WINDOW_S = {"cuda": None, "cpu": 5.0}
 MAX_QUEUE_LAG_S = 3.0  # drop older buffered audio beyond this to avoid captions drifting behind real time
 
+# ⚙ Settings (personal info, resume, job description, OpenAI API key) are saved here.
+SETTINGS_FILE = APP_DIR / "settings.json"
+
+# Answer button: sends the captions since the previous click to OpenAI and shows the reply.
+# The API key comes from ⚙ Settings → Security, else the OPENAI_API_KEY environment variable,
+# else this file next to the app (first line = the key). Only text is sent, never audio.
+OPENAI_MODEL = "gpt-4.1-mini"
+OPENAI_KEY_FILE = APP_DIR / "openai_api_key.txt"
+ANSWER_HISTORY_TURNS = 3  # earlier transcript segments sent along for context (0 = none)
+ANSWER_MAX_TOKENS = 600
+# Let the model search the web (OpenAI's web_search tool) when an answer needs facts it doesn't
+# have, e.g. what the interviewer's company does. It decides per question; searching adds a few
+# seconds and OpenAI bills each search call. "low" | "medium" | "high" = how much it reads.
+ANSWER_WEB_SEARCH = True
+WEB_SEARCH_CONTEXT = "low"
+
+# Initial window size, shared by the captions and the ⚙ Settings view (which fills the window
+# and scrolls when it's resized smaller).
 WINDOW_WIDTH = 680
-WINDOW_HEIGHT = 180
+WINDOW_HEIGHT = 600
 MIN_WIDTH = 300
-MIN_HEIGHT = 130
+MIN_HEIGHT = 170
 
 DEFAULT_FONT_SIZE = 16
 MIN_FONT_SIZE = 10

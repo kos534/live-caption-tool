@@ -5,3 +5,6 @@ build/
 dist/
 models/
 livecaption.log
+openai_api_key.txt
+settings.json
+settings.tmp

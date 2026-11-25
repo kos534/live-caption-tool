@@ -5,29 +5,12 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog
 
+from settings_view import SettingsView
+from theme import *  # noqa: F401,F403  (palette constants)
+from user_settings import UserSettings
+
 APP_NAME = "Wonuva Live Caption"
 PARAGRAPH_GAP_S = 6.0  # start a new paragraph when captions resume after a pause this long
-
-# Fantasy palette, taken from the Wonuva logo: cyan -> violet -> magenta -> amber flame.
-GRADIENT = ["#38bdf8", "#818cf8", "#a855f7", "#ec4899", "#fb923c"]
-BG = "#110b22"  # deep midnight violet
-TITLE_TOP = "#2a1854"
-TITLE_BOTTOM = "#160e30"
-PANEL_BG = "#1a1236"
-PILL_BG = "#2a1d52"
-PILL_HOVER_BG = "#3d2a78"
-TEXT_FINAL = "#f3eeff"
-TEXT_PARTIAL = "#b8a6ff"  # in-progress words: tinted until the accurate final pass lands
-TITLE_FG = "#f6d98b"  # enchanted gold
-MUTED = "#9d8fd0"
-ICON_FG = "#cbbcff"
-HOVER = "#ffd98a"
-CLOSE_HOVER = "#ff7aa8"
-SELECT_BG = "#6d3fd1"
-SWITCH_ON = "#8b5cf6"  # on/off switch track when on
-SWITCH_W, SWITCH_H = 34, 18
-SPARKLE_DIM = "#4b3a86"
-SPARKLE_BRIGHT = "#ffe7a3"
 
 BORDER = 2  # width of the glowing gradient frame around the window
 RADIUS = 10  # corner radius of the window
@@ -90,8 +73,12 @@ class CaptionWindow:
         max_font_size: int,
         assets_dir: Path = None,
         version: str = "",
+        user_settings: UserSettings = None,
+        settings_path: Path = None,
     ):
         self.version = version
+        self.user_settings = user_settings if user_settings is not None else UserSettings()
+        self.settings_path = settings_path
         self.min_width = min_width
         self.min_height = min_height
         self.font_size = font_size
@@ -131,6 +118,13 @@ class CaptionWindow:
         self._images = {}
         self._sparkle_ids = []
         self._sparkle_step = 0
+        self._partial_tags = ()  # extra tags for the in-progress caption (e.g. "question")
+        self._answerer = None
+        self._next_answer_id = 0
+        self._loading = {}  # answer id -> placeholder label ('loading', 'searching the web') until text arrives
+        self._loading_step = 0
+        self._loading_job = None
+        self._answer_floor = 0  # answer ids below this were asked before the last Clear
 
         self._load_icons()
         self._build_ui()
@@ -184,8 +178,11 @@ class CaptionWindow:
 
         self._build_title_bar()
 
-        self.settings_frame = tk.Frame(self.inner, bg=PANEL_BG)
-        self._build_settings_panel()
+
+        # Footer with the Answer button, packed before the body so it keeps its space when small.
+        self.footer = tk.Frame(self.inner, bg=BG)
+        self.footer.pack(side="bottom", fill="x")
+        self._build_answer_button()
 
         self.body = tk.Frame(self.inner, bg=BG)
         self.body.pack(side="top", fill="both", expand=True)
@@ -210,8 +207,31 @@ class CaptionWindow:
             cursor="arrow",
         )
         self.text.tag_configure("partial", foreground=TEXT_PARTIAL)
+        self.text.tag_configure("question", background=QUESTION_BG, lmargin1=6, lmargin2=6, rmargin=6)
+        self.text.tag_configure(
+            "answer_head", foreground=TITLE_FG, font=(self.font_family, 9, "bold"), spacing1=4, spacing3=2
+        )
+        self.text.tag_configure("answer", foreground=ANSWER_FG, lmargin1=14, lmargin2=14)
+        self.text.tag_configure("answer_loading", foreground=MUTED, lmargin1=14, lmargin2=14)
+        self.text.tag_configure("answer_error", foreground=ERROR_FG, lmargin1=14, lmargin2=14)
+        self.text.tag_raise("sel")
+        # Everything after this mark is the caption text the next Answer click will send.
+        self.text.mark_set("segment_start", "1.0")
+        self.text.mark_gravity("segment_start", "left")
 
         self.text.pack(side="left", fill="both", expand=True)
+
+        # Full-size Settings view, placed over the captions while open.
+        self.settings_view = SettingsView(
+            self.inner,
+            self.font_family,
+            on_font_delta=self._change_font_size,
+            on_share_toggle=self._handle_share_toggle,
+            on_save=self._save_settings,
+            on_cancel=self._cancel_settings,
+        )
+        self.settings_view.set_font_size(self.font_size)
+        self._scroll_target = self.text  # what the overlay scrollbar scrolls
 
         self._scroll_pos = (0.0, 1.0)
         self._scroll_hover = False
@@ -231,7 +251,7 @@ class CaptionWindow:
         Polled instead of relying on the Text widget's yscrollcommand, which Tk doesn't fire
         reliably in this window. Cheap: it only redraws when the view actually moved.
         """
-        pos = tuple(self.text.yview())
+        pos = tuple(self._scroll_target.yview())
         if pos != self._scroll_pos:
             self._scroll_pos = pos
             self._draw_scroll_thumb()
@@ -278,18 +298,18 @@ class CaptionWindow:
             h = max(1, sb.winfo_height())
             if not (first * h <= event.y <= last * h):
                 # Clicked the track: center the thumb there.
-                self.text.yview_moveto(event.y / h - (last - first) / 2)
-                first = self.text.yview()[0]
+                self._scroll_target.yview_moveto(event.y / h - (last - first) / 2)
+                first = self._scroll_target.yview()[0]
             drag["y"], drag["first"] = event.y, first
 
         def motion(event):
             h = max(1, sb.winfo_height())
-            self.text.yview_moveto(drag["first"] + (event.y - drag["y"]) / h)
-            self._scroll_pos = tuple(self.text.yview())
+            self._scroll_target.yview_moveto(drag["first"] + (event.y - drag["y"]) / h)
+            self._scroll_pos = tuple(self._scroll_target.yview())
             self._draw_scroll_thumb()
 
         def wheel(event):
-            self.text.yview_scroll(-1 if event.delta > 0 else 1, "units")
+            self._scroll_target.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
         sb.bind("<Enter>", lambda e: set_hover(True))
         sb.bind("<Leave>", lambda e: set_hover(False))
@@ -435,53 +455,80 @@ class CaptionWindow:
         widget.bind("<Enter>", enter)
         widget.bind("<Leave>", leave)
 
-    def _pill(self, parent, text, command):
-        btn = tk.Label(
-            parent, text=text, bg=PILL_BG, fg=ICON_FG, font=(self.font_family, 10, "bold"), cursor="hand2", padx=10, pady=1
+    def _build_answer_button(self):
+        """A rounded violet-outlined pill, right-aligned under the captions."""
+        c = tk.Canvas(self.footer, width=ANSWER_W, height=ANSWER_H, bg=BG, highlightthickness=0, bd=0, cursor="hand2")
+        c.pack(side="right", padx=(0, 10), pady=(2, 4))
+        r, w, h = 12, ANSWER_W - 2, ANSWER_H - 2
+        pts = [1 + r, 1, w - r, 1, w, 1, w, 1 + r, w, h - r, w, h, w - r, h, 1 + r, h, 1, h, 1, h - r, 1, 1 + r, 1, 1]
+        shape = c.create_polygon(pts, smooth=True, fill=PILL_BG, outline=ANSWER_BUTTON_OUTLINE, width=1.5)
+        label = c.create_text(ANSWER_W // 2, ANSWER_H // 2, text="✦  Answer", fill=ICON_FG, font=self.button_font)
+        c.bind("<Enter>", lambda e: (c.itemconfigure(shape, fill=PILL_HOVER_BG), c.itemconfigure(label, fill=HOVER)))
+        c.bind("<Leave>", lambda e: (c.itemconfigure(shape, fill=PILL_BG), c.itemconfigure(label, fill=ICON_FG)))
+        c.bind("<ButtonRelease-1>", lambda e: self.request_answer())
+        self.answer_button = c
+
+    # ---- fake captions (test mode: main.py --fake) ------------------------------------------
+
+    def enable_fake_captions(self, word_ms: int = 160):
+        """Add a box left of the Answer button; each line typed there plays in as a live caption.
+
+        The words appear one by one as an in-progress (partial) caption, then the line is finalized,
+        just like real speech, so the Answer flow can be tried without any audio.
+        """
+        self._fake_lines = []  # lines waiting to be played in
+        self._fake_playing = False
+        self._fake_word_ms = word_ms
+        entry = tk.Entry(
+            self.footer, bg=FIELD_BG, fg=TEXT_FINAL, insertbackground=TEXT_FINAL, relief="flat",
+            font=(self.font_family, 10), highlightthickness=1, highlightbackground=FIELD_BORDER,
+            highlightcolor=FIELD_FOCUS, selectbackground=SELECT_BG, selectforeground="#ffffff",
         )
-        btn.bind("<Button-1>", lambda e: command())
-        self._hover(btn, ICON_FG, HOVER, PILL_BG, PILL_HOVER_BG)
-        return btn
+        entry.pack(side="left", fill="x", expand=True, padx=(6, 10), pady=(2, 4), ipady=5)
+        hint = "Fake caption: type what they say, press Enter"
 
-    def _build_settings_panel(self):
-        font_row = tk.Frame(self.settings_frame, bg=PANEL_BG)
-        font_row.pack(side="top", fill="x", padx=14, pady=7)
-        tk.Label(font_row, text="✧  Font size", bg=PANEL_BG, fg=MUTED, font=(self.font_family, 9)).pack(side="left")
+        def show_hint():
+            if not entry.get():
+                entry.insert(0, hint)
+                entry.configure(fg=MUTED)
 
-        self._pill(font_row, "−", lambda: self._change_font_size(-1)).pack(side="left", padx=(10, 4))
-        self.font_size_label = tk.Label(
-            font_row, text=str(self.font_size), bg=PANEL_BG, fg=TITLE_FG, font=(self.font_family, 10, "bold"), width=3
-        )
-        self.font_size_label.pack(side="left")
-        self._pill(font_row, "+", lambda: self._change_font_size(1)).pack(side="left", padx=(4, 0))
+        def clear_hint(_=None):
+            if entry.cget("fg") == MUTED:
+                entry.delete(0, "end")
+                entry.configure(fg=TEXT_FINAL)
 
-        share_row = tk.Frame(self.settings_frame, bg=PANEL_BG)
-        share_row.pack(side="top", fill="x", padx=14, pady=(0, 7))
-        tk.Label(
-            share_row, text="✧  Hide from screen share", bg=PANEL_BG, fg=MUTED, font=(self.font_family, 9)
-        ).pack(side="left")
-        self.share_switch = tk.Canvas(
-            share_row, width=SWITCH_W, height=SWITCH_H, bg=PANEL_BG, highlightthickness=0, bd=0, cursor="hand2"
-        )
-        self.share_switch.pack(side="left", padx=(10, 0))
-        self.share_switch.bind("<Button-1>", lambda e: self._handle_share_toggle())
-        self.share_state_label = tk.Label(share_row, text="", bg=PANEL_BG, fg=MUTED, font=(self.font_family, 9))
-        self.share_state_label.pack(side="left", padx=(8, 0))
-        self._draw_share_switch()
+        def submit(_=None):
+            if entry.cget("fg") == MUTED:
+                return
+            line = " ".join(entry.get().split())
+            entry.delete(0, "end")
+            if line:
+                self._fake_lines.append(line)
+                if not self._fake_playing:
+                    self._play_fake_line()
 
-    def _draw_share_switch(self):
-        """A rounded on/off switch: violet with the knob right when on, dim with the knob left when off."""
-        c, on = self.share_switch, self._share_hidden
-        c.delete("all")
-        w, h = SWITCH_W, SWITCH_H
-        track = SWITCH_ON if on else PILL_BG
-        c.create_oval(0, 0, h, h, fill=track, width=0)
-        c.create_oval(w - h, 0, w, h, fill=track, width=0)
-        c.create_rectangle(h / 2, 0, w - h / 2, h, fill=track, width=0)
-        pad = 3
-        x0 = w - h + pad if on else pad
-        c.create_oval(x0, pad, x0 + h - 2 * pad, h - pad, fill=TEXT_FINAL if on else MUTED, width=0)
-        self.share_state_label.configure(text="On" if on else "Off", fg=TITLE_FG if on else MUTED)
+        entry.bind("<FocusIn>", clear_hint)
+        entry.bind("<FocusOut>", lambda e: show_hint())
+        entry.bind("<Return>", submit)
+        show_hint()
+        self.fake_entry = entry
+
+    def _play_fake_line(self):
+        if not self._fake_lines:
+            self._fake_playing = False
+            return
+        self._fake_playing = True
+        words = self._fake_lines.pop(0).split()
+
+        def step(n):
+            if n < len(words):
+                self.update_partial(" ".join(words[:n]))
+                self.root.after(self._fake_word_ms, lambda: step(n + 1))
+            else:
+                self.append_final(" ".join(words))
+                self.root.after(300, self._play_fake_line)  # short pause between queued lines
+
+        step(1)
 
     def _handle_share_toggle(self):
         want = not self._share_hidden
@@ -489,19 +536,51 @@ class CaptionWindow:
             self.set_status("Couldn't change screen-share hiding on this Windows version")
             return
         self._share_hidden = want
-        self._draw_share_switch()
+        self.settings_view.set_share_hidden(want)
 
     def set_on_screen_share_toggle(self, callback, hidden: bool):
         """Wire the 'Hide from screen share' switch: callback(hidden) -> bool applied; shows `hidden`."""
         self._on_share_toggle = callback
         self._share_hidden = hidden
-        self._draw_share_switch()
+        self.settings_view.set_share_hidden(hidden)
+
+    # ---- settings view --------------------------------------------------------------------
+
+    def _settings_open(self) -> bool:
+        return bool(self.settings_view.winfo_manager())
 
     def _toggle_settings(self):
-        if self.settings_frame.winfo_manager():
-            self.settings_frame.pack_forget()
+        if self._settings_open():
+            self._save_settings()  # the ⚙ button closes it like Save, so edits are never lost
         else:
-            self.settings_frame.pack(side="top", fill="x", before=self.body)
+            self._open_settings()
+
+    def _open_settings(self):
+        self.settings_view.load(self.user_settings)
+        self.settings_view.place(x=0, y=0, relwidth=1, relheight=1)
+        self.settings_view.lift()
+        self._scroll_target = self.settings_view
+        self.root.bind_all("<MouseWheel>", self.settings_view.on_wheel, add="+")
+
+    def _close_settings(self):
+        self.settings_view.place_forget()
+        self.root.unbind_all("<MouseWheel>")
+        self._scroll_target = self.text
+        self.text.see("end")
+
+    def _save_settings(self):
+        self.settings_view.store(self.user_settings)
+        if self.settings_path is not None:
+            try:
+                self.user_settings.save(self.settings_path)
+            except OSError as exc:
+                self.settings_view.show_message(f"Couldn't save: {exc.strerror or exc}", error=True)
+                return
+        self._close_settings()
+        self._flash_status("Settings saved")
+
+    def _cancel_settings(self):
+        self._close_settings()
 
     def _change_font_size(self, delta: int):
         new_size = max(self.min_font_size, min(self.max_font_size, self.font_size + delta))
@@ -512,7 +591,7 @@ class CaptionWindow:
         self.text.configure(font=(self.font_family, self.font_size))
         if follow:
             self.text.see("end")
-        self.font_size_label.configure(text=str(self.font_size))
+        self.settings_view.set_font_size(self.font_size)
 
     # ---- window behavior ------------------------------------------------------------------
 
@@ -612,8 +691,117 @@ class CaptionWindow:
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
         self.text.configure(state="disabled")
+        for name in self.text.mark_names():
+            if name.startswith("ans"):
+                self.text.mark_unset(name)
+        self.text.mark_set("segment_start", "1.0")
         self._partial_active = False
+        self._partial_tags = ()
         self._last_activity = None
+        self._loading.clear()
+        self._next_answer_id += 1  # answers still in flight belong to the cleared text: drop them
+        self._answer_floor = self._next_answer_id
+        if self._answerer is not None:
+            self._answerer.reset()
+
+    # ---- answers --------------------------------------------------------------------------
+
+    # Each Answer click sends the caption text since the previous click (everything after the
+    # "segment_start" mark), tints it as a question block, and adds an answer block below it that
+    # shows "loading..." until the reply streams in. New captions continue after the answer block,
+    # and form the next question. A caption still in progress at the click stays in the question
+    # block and is finalized there (its region has its own start/end marks).
+
+    def set_answerer(self, answerer):
+        self._answerer = answerer
+        self._poll_answers()
+
+    def request_answer(self):
+        if self._answerer is None:
+            self._flash_status("Answering isn't available")
+            return
+        question = self.text.get("segment_start", "end-1c").strip()
+        if not question:
+            self._flash_status("No new captions to answer yet")
+            return
+        answer_id = self._next_answer_id
+        self._next_answer_id += 1
+
+        follow = self._at_end()
+        self._set_editable(True)
+        if not self.text.get("end-2c", "end-1c") == "\n":
+            self.text.insert("end-1c", "\n")
+        self.text.tag_add("question", "segment_start", "end-1c")
+        if self._partial_active:
+            self._partial_tags = ("question",)  # its final text lands inside the question block
+        self.text.insert("end-1c", "✦ Answer\n", ("answer_head",))
+        start = self.text.index("end-1c")
+        self.text.insert("end-1c", "loading", ("answer_loading",))
+        self.text.mark_set(f"ans{answer_id}_start", start)
+        self.text.mark_gravity(f"ans{answer_id}_start", "left")
+        self.text.mark_set(f"ans{answer_id}_end", "end-1c")
+        self.text.mark_gravity(f"ans{answer_id}_end", "left")
+        self.text.insert("end-1c", "\n")
+        self.text.mark_set("segment_start", "end-1c")
+        self._last_activity = None  # the next caption starts its own paragraph after the answer
+        if follow:
+            self.text.see("end")
+        self._set_editable(False)
+
+        self._loading[answer_id] = "loading"
+        if self._loading_job is None:
+            self._animate_loading()
+        self._answerer.ask(answer_id, question)
+
+    def _set_answer_text(self, answer_id: int, text: str, tag: str, append: bool = False):
+        start, end = f"ans{answer_id}_start", f"ans{answer_id}_end"
+        if start not in self.text.mark_names():
+            return
+        follow = self._at_end()
+        self._set_editable(True)
+        if not append:
+            self.text.delete(start, end)
+        idx = self.text.index(end)
+        self.text.insert(idx, text, (tag,))
+        self.text.mark_set(end, f"{idx} + {len(text)} chars")
+        if follow:
+            self.text.see("end")
+        self._set_editable(False)
+
+    def _animate_loading(self):
+        """Cycle 'loading', 'loading.', ... on every answer still waiting for its first text."""
+        self._loading_job = None
+        if not self._loading:
+            return
+        self._loading_step = (self._loading_step + 1) % 4
+        for answer_id, label in list(self._loading.items()):
+            self._set_answer_text(answer_id, label + "." * self._loading_step, "answer_loading")
+        self._loading_job = self.root.after(350, self._animate_loading)
+
+    def _poll_answers(self):
+        try:
+            while True:
+                answer_id, kind, text = self._answerer.events.get_nowait()
+                if answer_id < self._answer_floor:
+                    continue  # the transcript was cleared since this was asked
+                if kind == "status":
+                    if answer_id in self._loading:
+                        self._loading[answer_id] = text  # e.g. "searching the web"
+                    continue
+                first = self._loading.pop(answer_id, None) is not None
+                if kind == "delta":
+                    self._set_answer_text(answer_id, text.lstrip() if first else text, "answer", append=not first)
+                elif kind == "done":
+                    # The final text has any links/citations stripped: show that version.
+                    if text:
+                        self._set_answer_text(answer_id, text, "answer")
+                    elif first:
+                        self._set_answer_text(answer_id, "(no answer)", "answer_loading")
+                elif kind == "error":
+                    self._set_answer_text(answer_id, f"⚠ {text}", "answer_error", append=not first)
+        except queue.Empty:
+            pass
+        self.root.after(60, self._poll_answers)
 
     def _set_editable(self, editable: bool):
         self.text.configure(state="normal" if editable else "disabled")
@@ -649,15 +837,24 @@ class CaptionWindow:
         follow = self._at_end()
         self._set_editable(True)
         if self._partial_active:
-            self.text.delete("partial_start", "end-1c")
+            self.text.delete("partial_start", "partial_end")
         else:
             self.text.mark_set("partial_start", "end-1c")
             self.text.mark_gravity("partial_start", "left")
             self._partial_active = True
             self._partial_sep = self._separator()
+            self._partial_tags = ()
+        # Both marks have left gravity, so an answer block added after the region (Answer clicked
+        # mid-caption) doesn't get swallowed into it; partial_end is moved explicitly instead.
+        idx = self.text.index("partial_start")
         if text:
-            self.text.insert("end-1c", self._partial_sep + text, tags)
+            content = self._partial_sep + text
+            self.text.insert(idx, content, tuple(tags) + self._partial_tags)
+            self.text.mark_set("partial_end", f"{idx} + {len(content)} chars")
             self._last_activity = time.monotonic()
+        else:
+            self.text.mark_set("partial_end", idx)
+        self.text.mark_gravity("partial_end", "left")
         if follow:
             self.text.see("end")
         self._set_editable(False)

@@ -6,3 +6,5 @@ scipy>=1.11
 # Harmless on machines without an NVIDIA GPU: the app falls back to CPU.
 nvidia-cublas-cu12
 nvidia-cudnn-cu12>=9,<10
+openai>=1.40  # Answer button (OpenAI API)
+pypdf>=4  # reading PDF resumes in Settings

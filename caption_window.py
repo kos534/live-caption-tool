@@ -23,6 +23,8 @@ ICON_FG = "#cbbcff"
 HOVER = "#ffd98a"
 CLOSE_HOVER = "#ff7aa8"
 SELECT_BG = "#6d3fd1"
+SWITCH_ON = "#8b5cf6"  # on/off switch track when on
+SWITCH_W, SWITCH_H = 34, 18
 SPARKLE_DIM = "#4b3a86"
 SPARKLE_BRIGHT = "#ffe7a3"
 
@@ -120,6 +122,8 @@ class CaptionWindow:
         self._partial_active = False
         self._last_activity = None
         self._on_close_callback = None
+        self._on_share_toggle = None
+        self._share_hidden = False
         self._status = ""
         self._images = {}
         self._sparkle_ids = []
@@ -446,6 +450,48 @@ class CaptionWindow:
         )
         self.font_size_label.pack(side="left")
         self._pill(font_row, "+", lambda: self._change_font_size(1)).pack(side="left", padx=(4, 0))
+
+        share_row = tk.Frame(self.settings_frame, bg=PANEL_BG)
+        share_row.pack(side="top", fill="x", padx=14, pady=(0, 7))
+        tk.Label(
+            share_row, text="✧  Hide from screen share", bg=PANEL_BG, fg=MUTED, font=(self.font_family, 9)
+        ).pack(side="left")
+        self.share_switch = tk.Canvas(
+            share_row, width=SWITCH_W, height=SWITCH_H, bg=PANEL_BG, highlightthickness=0, bd=0, cursor="hand2"
+        )
+        self.share_switch.pack(side="left", padx=(10, 0))
+        self.share_switch.bind("<Button-1>", lambda e: self._handle_share_toggle())
+        self.share_state_label = tk.Label(share_row, text="", bg=PANEL_BG, fg=MUTED, font=(self.font_family, 9))
+        self.share_state_label.pack(side="left", padx=(8, 0))
+        self._draw_share_switch()
+
+    def _draw_share_switch(self):
+        """A rounded on/off switch: violet with the knob right when on, dim with the knob left when off."""
+        c, on = self.share_switch, self._share_hidden
+        c.delete("all")
+        w, h = SWITCH_W, SWITCH_H
+        track = SWITCH_ON if on else PILL_BG
+        c.create_oval(0, 0, h, h, fill=track, width=0)
+        c.create_oval(w - h, 0, w, h, fill=track, width=0)
+        c.create_rectangle(h / 2, 0, w - h / 2, h, fill=track, width=0)
+        pad = 3
+        x0 = w - h + pad if on else pad
+        c.create_oval(x0, pad, x0 + h - 2 * pad, h - pad, fill=TEXT_FINAL if on else MUTED, width=0)
+        self.share_state_label.configure(text="On" if on else "Off", fg=TITLE_FG if on else MUTED)
+
+    def _handle_share_toggle(self):
+        want = not self._share_hidden
+        if self._on_share_toggle is not None and not self._on_share_toggle(want):
+            self.set_status("Couldn't change screen-share hiding on this Windows version")
+            return
+        self._share_hidden = want
+        self._draw_share_switch()
+
+    def set_on_screen_share_toggle(self, callback, hidden: bool):
+        """Wire the 'Hide from screen share' switch: callback(hidden) -> bool applied; shows `hidden`."""
+        self._on_share_toggle = callback
+        self._share_hidden = hidden
+        self._draw_share_switch()
 
     def _toggle_settings(self):
         if self.settings_frame.winfo_manager():

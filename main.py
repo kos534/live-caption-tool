@@ -1,6 +1,26 @@
+import logging
 import queue
+import sys
+import threading
 
 import config
+import gpu
+
+# The exe has no console, so log to a file next to it (overwritten each launch).
+logging.basicConfig(
+    filename=str(config.APP_DIR / "livecaption.log"),
+    filemode="w",
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+sys.excepthook = lambda *exc: logging.critical("Unhandled exception", exc_info=exc)
+threading.excepthook = lambda a: logging.critical(
+    "Unhandled exception in thread %s", a.thread, exc_info=(a.exc_type, a.exc_value, a.exc_traceback)
+)
+
+logging.info("Wonuva Live Caption v%s", config.APP_VERSION)
+gpu.register_cuda_dlls()  # must run before faster-whisper/CTranslate2 load any CUDA libraries
+
 from audio_capture import LoopbackCapture
 from caption_window import CaptionWindow
 from transcriber import Transcriber
@@ -15,11 +35,11 @@ def main():
         height=config.WINDOW_HEIGHT,
         min_width=config.MIN_WIDTH,
         min_height=config.MIN_HEIGHT,
-        model_choices=list(config.MODEL_PRESETS.keys()),
-        default_model=config.DEFAULT_MODEL,
         font_size=config.DEFAULT_FONT_SIZE,
         min_font_size=config.MIN_FONT_SIZE,
         max_font_size=config.MAX_FONT_SIZE,
+        assets_dir=config.ASSETS_DIR,
+        version=config.APP_VERSION,
     )
 
     capture = LoopbackCapture(audio_queue, frame_ms=config.FRAME_MS)
@@ -43,10 +63,13 @@ def main():
     transcriber = Transcriber(
         audio_queue,
         text_queue,
-        model_presets=config.MODEL_PRESETS,
+        # Fixed model (no in-app model picker); it must be bundled in models\ -- the app never downloads.
+        model_presets={config.DEFAULT_MODEL: config.MODEL_PRESETS[config.DEFAULT_MODEL]},
         default_model=config.DEFAULT_MODEL,
         device=config.DEVICE,
-        compute_type=config.COMPUTE_TYPE,
+        gpu_compute_type=config.GPU_COMPUTE_TYPE,
+        cpu_compute_type=config.CPU_COMPUTE_TYPE,
+        language=config.LANGUAGE,
         download_root=str(config.MODELS_DIR),
         native_sample_rate=capture.device_rate,
         target_sample_rate=config.TARGET_SAMPLE_RATE,
@@ -58,7 +81,6 @@ def main():
         partial_window_s=config.PARTIAL_WINDOW_S,
         max_queue_lag_s=config.MAX_QUEUE_LAG_S,
     )
-    window.set_on_model_change(transcriber.set_model)
 
     transcriber.start()
     window.poll_queue(text_queue)

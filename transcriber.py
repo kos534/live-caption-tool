@@ -6,10 +6,10 @@ from fractions import Fraction
 
 import numpy as np
 from faster_whisper import WhisperModel
-from faster_whisper.utils import download_model
 from scipy.signal import resample_poly
 
 import gpu
+from model_download import find_model
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class Transcriber:
         gpu_compute_type: str,
         cpu_compute_type: str,
         language: str,
-        download_root: str,
+        model_dirs: list,
         native_sample_rate: int,
         target_sample_rate: int,
         frame_ms: int,
@@ -56,7 +56,7 @@ class Transcriber:
         self.gpu_compute_type = gpu_compute_type
         self.cpu_compute_type = cpu_compute_type
         self.language = language
-        self.download_root = download_root
+        self.model_dirs = list(model_dirs)  # searched in order for installed models
         self.native_sample_rate = native_sample_rate
         self.target_sample_rate = target_sample_rate
         self.frame_ms = frame_ms
@@ -141,12 +141,11 @@ class Transcriber:
         return True
 
     def _load_model(self, size: str, device: str, compute_type: str) -> WhisperModel:
-        """Load a model from the bundled models folder only; the app never downloads models."""
-        if not model_available(size, self.download_root):
-            raise FileNotFoundError(f"Model '{size}' is not installed in {self.download_root}")
-        return WhisperModel(
-            size, device=device, compute_type=compute_type, download_root=self.download_root, local_files_only=True
-        )
+        """Load an installed model (downloaded on first run by model_download); never downloads."""
+        path = find_model(size, self.model_dirs)
+        if not path:
+            raise FileNotFoundError(f"Model '{size}' is not installed in {self.model_dirs[0]}")
+        return WhisperModel(path, device=device, compute_type=compute_type, local_files_only=True)
 
     def _run(self):
         try:
@@ -301,15 +300,6 @@ class Transcriber:
                 parts[-1] += "."
             parts.append(text)
         return _collapse_repeats(" ".join(parts).strip())
-
-
-def model_available(size: str, models_dir: str) -> bool:
-    """True if the faster-whisper model is already present locally (never touches the network)."""
-    try:
-        download_model(size, cache_dir=models_dir, local_files_only=True)
-        return True
-    except Exception:
-        return False
 
 
 def _collapse_repeats(text: str) -> str:

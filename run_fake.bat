@@ -5,4 +5,4 @@ if not exist .venv (
     .venv\Scripts\python.exe -m pip install --upgrade pip
     .venv\Scripts\python.exe -m pip install -r requirements.txt
 )
-.venv\Scripts\python.exe main.py --fake
+.venv\Scripts\python.exe main.py --fake --no-auth

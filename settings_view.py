@@ -20,7 +20,7 @@ LABEL_W = 11  # characters: width of the field labels column
 
 
 class SettingsView(tk.Frame):
-    def __init__(self, parent, font_family: str, on_font_delta, on_share_toggle, on_save, on_cancel):
+    def __init__(self, parent, font_family: str, on_font_delta, on_share_toggle, on_save, on_cancel, on_sign_out=None):
         super().__init__(parent, bg=BG)
         self.ff = font_family
         self._on_share_toggle = on_share_toggle
@@ -46,6 +46,7 @@ class SettingsView(tk.Frame):
             self.content, text="✧  Settings", bg=BG, fg=TITLE_FG, font=(font_family, 13, "bold"), anchor="w"
         ).pack(side="top", fill="x", padx=6, pady=(8, 2))
 
+        self._build_account(on_sign_out)
         self._build_display(on_font_delta)
         self._build_personal()
         self._build_job()
@@ -100,6 +101,22 @@ class SettingsView(tk.Frame):
         return hint
 
     # ---- sections -------------------------------------------------------------------------
+
+    def _build_account(self, on_sign_out):
+        card = self._card("Wonuva account")
+        self._label(card, 1, "Signed in as")
+        self.account_label = tk.Label(card, text="", bg=PANEL_BG, fg=TEXT_FINAL, font=(self.ff, 10), anchor="w")
+        self.account_label.grid(row=1, column=1, sticky="w", pady=4)
+        if on_sign_out is not None:
+            self._pill(card, "Sign out", on_sign_out).grid(row=1, column=2, sticky="e")
+        self.account_card = card
+
+    def set_account(self, user):
+        if user:
+            name, email = user.get("name", ""), user.get("email", "")
+            self.account_label.configure(text=f"{name} ({email})" if name and email else (email or name), fg=TEXT_FINAL)
+        else:
+            self.account_label.configure(text="Not signed in", fg=MUTED)
 
     def _build_display(self, on_font_delta):
         card = self._card("Display")

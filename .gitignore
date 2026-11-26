@@ -8,3 +8,7 @@ livecaption.log
 openai_api_key.txt
 settings.json
 settings.tmp
+build_info.py
+signing-env.bat
+*.pfx
+signing-metadata.json

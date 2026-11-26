@@ -1,11 +1,16 @@
 import queue
+import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog
 
+from auth import AuthUnavailable
+from download_view import DownloadView
 from settings_view import SettingsView
+from signin_view import SignInView
 from theme import *  # noqa: F401,F403  (palette constants)
 from user_settings import UserSettings
 
@@ -126,11 +131,16 @@ class CaptionWindow:
         self._loading_job = None
         self._answer_floor = 0  # answer ids below this were asked before the last Clear
 
+        self._calls = queue.Queue()  # functions queued by other threads via call_soon()
+        self._locked = False  # True while the Wonuva sign-in screen is up
+        self._auth = None
+        self._update_item = None
         self._load_icons()
         self._build_ui()
         self._bind_drag()
         self._bind_resize()
         self._twinkle()
+        self._run_calls()
 
     # ---- assets ---------------------------------------------------------------------------
 
@@ -229,6 +239,7 @@ class CaptionWindow:
             on_share_toggle=self._handle_share_toggle,
             on_save=self._save_settings,
             on_cancel=self._cancel_settings,
+            on_sign_out=self.sign_out,
         )
         self.settings_view.set_font_size(self.font_size)
         self._scroll_target = self.text  # what the overlay scrollbar scrolls
@@ -358,6 +369,109 @@ class CaptionWindow:
             self.buttons.append(item)
 
         c.bind("<Configure>", lambda e: self._draw_chrome(e.width, e.height))
+
+    def show_update(self, info: dict):
+        """Add a gold "Update" button (left of ⚙) that opens the download page for info['version']."""
+        c = self.title_bar
+        if getattr(self, "_update_item", None) is not None:
+            return
+        mid = TITLE_H // 2 + 1
+        item = c.create_text(0, mid, text=f"Update v{info['version']}", anchor="e", fill=TITLE_FG, font=self.button_font, tags="button")
+        c.tag_bind(item, "<Enter>", lambda e: (c.itemconfigure(item, fill=HOVER), c.configure(cursor="hand2")))
+        c.tag_bind(item, "<Leave>", lambda e: (c.itemconfigure(item, fill=TITLE_FG), c.configure(cursor="")))
+        c.tag_bind(item, "<ButtonRelease-1>", lambda e: webbrowser.open(info["url"]))
+        self._update_item = item
+        self.buttons.append(item)
+        self._layout_title(c.winfo_width())
+        note = f": {info['notes']}" if info.get("notes") else ""
+        self._flash_status(f"Version {info['version']} is available{note}", ms=10000)
+
+    def call_soon(self, func):
+        """Run func on the Tk thread soon. Safe to call from any thread (Tk itself isn't)."""
+        self._calls.put(func)
+
+    def _run_calls(self):
+        try:
+            while True:
+                self._calls.get_nowait()()
+        except queue.Empty:
+            pass
+        self.root.after(200, self._run_calls)
+
+    # ---- Wonuva account --------------------------------------------------------------------
+
+    def require_sign_in(self, auth, on_ready, recheck_hours: float = 6):
+        """Lock the window behind the sign-in screen; call on_ready() once the user is signed in.
+
+        A saved session is checked first (in the background). While running, the session is
+        re-checked every recheck_hours; if Wonuva revoked it, the window locks again.
+        """
+        self._auth = auth
+        self._on_ready = on_ready
+        self._ready_called = False
+        self._recheck_ms = int(recheck_hours * 3600 * 1000)
+        self.signin_view = SignInView(self.inner, self.font_family, auth, self.call_soon, self._signed_in)
+        self._lock()
+        self.signin_view.checking()
+
+        def restore():
+            try:
+                user = auth.restore()
+            except AuthUnavailable as exc:
+                self.call_soon(lambda m=str(exc): self.signin_view.ready(f"{m}. Check your internet connection, then sign in.", error=True))
+                return
+            except Exception as exc:
+                self.call_soon(lambda m=str(exc): self.signin_view.ready(f"Couldn't check your account: {m}", error=True))
+                return
+            self.call_soon(lambda: self._signed_in(user) if user else self.signin_view.ready())
+
+        threading.Thread(target=restore, name="restore-session", daemon=True).start()
+        self.root.after(self._recheck_ms, self._recheck_session)
+
+    def _lock(self):
+        self._locked = True
+        if self._settings_open():
+            self._close_settings()
+        self.signin_view.place(x=0, y=0, relwidth=1, relheight=1)
+        self.signin_view.lift()
+
+    def _signed_in(self, user: dict):
+        self._locked = False
+        self.signin_view.place_forget()
+        self.settings_view.set_account(user)
+        self._flash_status(f"Signed in as {user.get('email') or user.get('name') or 'Wonuva user'}")
+        if not self._ready_called:
+            self._ready_called = True
+            self._on_ready()
+
+    def sign_out(self):
+        if self._auth is None:
+            return
+        threading.Thread(target=self._auth.sign_out, name="sign-out", daemon=True).start()
+        self.settings_view.set_account(None)
+        self._lock()
+        self.signin_view.ready("You're signed out.")
+
+    def _recheck_session(self):
+        if not self._locked:
+            def run():
+                if not self._auth.revalidate():
+                    self.call_soon(self._session_ended)
+
+            threading.Thread(target=run, name="recheck-session", daemon=True).start()
+        self.root.after(self._recheck_ms, self._recheck_session)
+
+    def _session_ended(self):
+        self.settings_view.set_account(None)
+        self._lock()
+        self.signin_view.ready("Your Wonuva session ended. Please sign in again.", error=True)
+
+    def show_model_download(self, downloader, approx_bytes: int, target_dir, on_done):
+        """Cover the caption area with the first-run model download screen until it finishes."""
+        view = DownloadView(self.body, self.font_family, downloader, approx_bytes, target_dir, on_done)
+        view.place(x=0, y=0, relwidth=1, relheight=1)
+        view.lift()
+        self.download_view = view
 
     def _draw_chrome(self, w: int, h: int):
         """Paint the rounded window: gradient frame, title strip, seam and body background."""
@@ -550,6 +664,8 @@ class CaptionWindow:
         return bool(self.settings_view.winfo_manager())
 
     def _toggle_settings(self):
+        if self._locked:
+            return  # nothing opens until the user is signed in
         if self._settings_open():
             self._save_settings()  # the ⚙ button closes it like Save, so edits are never lost
         else:
